@@ -24,14 +24,10 @@
 
 
 #ifndef RX_BUFFER_SIZE
-  #define RX_BUFFER_SIZE 128
+    #define RX_BUFFER_SIZE 512
 #endif
 #ifndef TX_BUFFER_SIZE
-  #ifdef USE_LINE_NUMBERS
-    #define TX_BUFFER_SIZE 112
-  #else
-    #define TX_BUFFER_SIZE 104
-  #endif
+    #define TX_BUFFER_SIZE 128
 #endif
 
 #define SERIAL_NO_DATA 0xff

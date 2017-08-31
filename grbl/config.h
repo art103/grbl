@@ -34,8 +34,8 @@
 // NOTE: OEMs can avoid the need to maintain/update the defaults.h and cpu_map.h files and use only
 // one configuration file by placing their specific defaults and pin map at the bottom of this file.
 // If doing so, simply comment out these two defines and see instructions below.
-#define DEFAULTS_GENERIC
-#define CPU_MAP_ATMEGA328P // Arduino Uno CPU
+//#define DEFAULTS_GENERIC
+//#define CPU_MAP_ATMEGA328P // Arduino Uno CPU
 
 // Serial baud rate
 // #define BAUD_RATE 230400
@@ -102,12 +102,12 @@
 // on separate pin, but homed in one cycle. Also, it should be noted that the function of hard limits
 // will not be affected by pin sharing.
 // NOTE: Defaults are set for a traditional 3-axis CNC machine. Z-axis first to clear, followed by X & Y.
-#define HOMING_CYCLE_0 (1<<Z_AXIS)                // REQUIRED: First move Z to clear workspace.
-#define HOMING_CYCLE_1 ((1<<X_AXIS)|(1<<Y_AXIS))  // OPTIONAL: Then move X,Y at the same time.
+//#define HOMING_CYCLE_0 (1<<Z_AXIS)                // REQUIRED: First move Z to clear workspace.
+//#define HOMING_CYCLE_1 ((1<<X_AXIS)|(1<<Y_AXIS))  // OPTIONAL: Then move X,Y at the same time.
 // #define HOMING_CYCLE_2                         // OPTIONAL: Uncomment and add axes mask to enable
 
 // NOTE: The following are two examples to setup homing for 2-axis machines.
-// #define HOMING_CYCLE_0 ((1<<X_AXIS)|(1<<Y_AXIS))  // NOT COMPATIBLE WITH COREXY: Homes both X-Y in one cycle. 
+#define HOMING_CYCLE_0 ((1<<X_AXIS)|(1<<Y_AXIS))  // NOT COMPATIBLE WITH COREXY: Homes both X-Y in one cycle.
 
 // #define HOMING_CYCLE_0 (1<<X_AXIS)  // COREXY COMPATIBLE: First home X
 // #define HOMING_CYCLE_1 (1<<Y_AXIS)  // COREXY COMPATIBLE: Then home Y
@@ -172,7 +172,7 @@
 // immediately forces a feed hold and then safely de-energizes the machine. Resuming is blocked until
 // the safety door is re-engaged. When it is, Grbl will re-energize the machine and then resume on the
 // previous tool path, as if nothing happened.
-// #define ENABLE_SAFETY_DOOR_INPUT_PIN // Default disabled. Uncomment to enable.
+#define ENABLE_SAFETY_DOOR_INPUT_PIN // Default disabled. Uncomment to enable.
 
 // After the safety door switch has been toggled and restored, this setting sets the power-up delay
 // between restoring the spindle and coolant and resuming the cycle.
@@ -610,6 +610,20 @@
 #define RPM_LINE_A4  1.203413e-01  // Used N_PIECES = 4. A and B constants of line 4.
 #define RPM_LINE_B4  1.151360e+03
 
+#define PSTR(x)	x
+#define F_CPU SysCtlClockGet()
+#define CYCLES_PER_MICROSECOND (SysCtlClockGet()/1000000)  // 80MHz = 80
+#define sei CPUcpsie
+
+
+// Interrupt Priorities (0 highest)
+#define CONFIG_STEPPER_PRIORITY     (0 << 5)
+#define CONFIG_LASER_PRIORITY       (1 << 5)
+#define CONFIG_USB_PRIORITY         (2 << 5)
+#define CONFIG_SENSE_PRIORITY       (3 << 5)
+#define CONFIG_JOY_PRIORITY         (4 << 5)
+#define CONFIG_GPTIMER_PRIORITY     (7 << 5)
+
 
 /* ---------------------------------------------------------------------------------------
    OEM Single File Configuration Option
@@ -622,7 +636,104 @@
 
 // Paste CPU_MAP definitions here.
 
+  // Define step pulse output pins. NOTE: All step bit pins must be on the same port.
+  #define STEP_PORT       GPIO_PORTE_BASE
+  #define X_STEP_BIT      2
+  #define Y_STEP_BIT      3
+  #define Z_STEP_BIT      4
+  #define STEP_MASK       ((1<<X_STEP_BIT)|(1<<Y_STEP_BIT)|(1<<Z_STEP_BIT)) // All step bits
+
+  // Define step direction output pins. NOTE: All direction pins must be on the same port.
+  #define DIRECTION_PORT    GPIO_PORTE_BASE
+  #define X_DIRECTION_BIT   3
+  #define Y_DIRECTION_BIT   4
+  #define Z_DIRECTION_BIT   5
+  #define DIRECTION_MASK    ((1<<X_DIRECTION_BIT)|(1<<Y_DIRECTION_BIT)|(1<<Z_DIRECTION_BIT)) // All direction bits
+
+  // Define stepper driver enable/disable output pin.
+  #define STEPPERS_DISABLE_PORT   GPIO_PORTE_BASE
+  #define STEPPERS_DISABLE_BIT    0
+  #define STEPPERS_DISABLE_MASK   (1<<STEPPERS_DISABLE_BIT)
+
+  // Define homing/hard limit switch input pins and limit interrupt vectors.
+  // NOTE: All limit bit pins must be on the same port, but not on a port with other input pins (CONTROL).
+  #define LIMIT_PORT       GPIO_PORTE_BASE
+  #define X_LIMIT_BIT      4
+  #define Y_LIMIT_BIT      5
+  #define Z_LIMIT_BIT      6
+  #define LIMIT_MASK       ((1<<X_LIMIT_BIT)|(1<<Y_LIMIT_BIT)|(1<<Z_LIMIT_BIT)) // All limit bits
+
+  // Define spindle enable and spindle direction output pins.
+  #define SPINDLE_ENABLE_PORT   GPIO_PORTB_BASE
+  // Z Limit pin and spindle PWM/enable pin swapped to access hardware PWM on Pin 11.
+  #define SPINDLE_ENABLE_BIT    1
+
+  // Define flood and mist coolant enable output pins.
+  #define COOLANT_FLOOD_PORT  GPIO_PORTD_BASE
+  #define COOLANT_FLOOD_BIT   2  // Air Assist
+
+  // Define user-control controls (cycle start, reset, feed hold) input pins.
+  // NOTE: All CONTROLs pins must be on the same port and not on a port with other input pins (limits).
+  #define CONTROL_PORT      GPIO_PORTE_BASE
+  #define CONTROL_SAFETY_DOOR_BIT   1  // Uno Analog Pin 1 NOTE: Safety door is shared with feed hold. Enabled by config define.
+  #define CONTROL_MASK      ((1<<CONTROL_SAFETY_DOOR_BIT))
+  #define CONTROL_INVERT_MASK   CONTROL_MASK // May be re-defined to only invert certain control pins.
+
+  // Define probe switch input pin.
+  //#define PROBE_PORT      PORTC
+  //#define PROBE_BIT       5  // Uno Analog Pin 5
+  //#define PROBE_MASK      (1<<PROBE_BIT)
+
+  // Variable spindle configuration below. Do not change unless you know what you are doing.
+  // NOTE: Only used when variable spindle is enabled.
+  #define SPINDLE_PWM_MAX_VALUE     255 // Don't change. 328p fast PWM mode fixes top value as 255.
+  #ifndef SPINDLE_PWM_MIN_VALUE
+    #define SPINDLE_PWM_MIN_VALUE   1   // Must be greater than zero.
+  #endif
+  #define SPINDLE_PWM_OFF_VALUE     0
+  #define SPINDLE_PWM_RANGE         (SPINDLE_PWM_MAX_VALUE-SPINDLE_PWM_MIN_VALUE)
+
+  // NOTE: On the 328p, these must be the same as the SPINDLE_ENABLE settings.
+  #define SPINDLE_PWM_PORT  GPIO_PORTB_BASE
+  #define SPINDLE_PWM_BIT	6
+
+  #define SPINDLE_PWM_FREQ          40000
+
 // Paste default settings definitions here.
+  #define DEFAULT_X_STEPS_PER_MM 157.48
+  #define DEFAULT_Y_STEPS_PER_MM 157.48
+  #define DEFAULT_Z_STEPS_PER_MM 250.0
+  #define DEFAULT_X_MAX_RATE 25000.0 // mm/min
+  #define DEFAULT_Y_MAX_RATE 25000.0 // mm/min
+  #define DEFAULT_Z_MAX_RATE 500.0 // mm/min
+  #define DEFAULT_X_ACCELERATION (2500.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
+  #define DEFAULT_Y_ACCELERATION (2500.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
+  #define DEFAULT_Z_ACCELERATION (10.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
+  #define DEFAULT_X_MAX_TRAVEL 200.0 // mm NOTE: Must be a positive value.
+  #define DEFAULT_Y_MAX_TRAVEL 200.0 // mm NOTE: Must be a positive value.
+  #define DEFAULT_Z_MAX_TRAVEL 200.0 // mm NOTE: Must be a positive value.
+  #define DEFAULT_SPINDLE_RPM_MAX 1000.0 // rpm
+  #define DEFAULT_SPINDLE_RPM_MIN 0.0 // rpm
+  #define DEFAULT_STEP_PULSE_MICROSECONDS 10
+  #define DEFAULT_STEPPING_INVERT_MASK 0
+  #define DEFAULT_DIRECTION_INVERT_MASK 0
+  #define DEFAULT_STEPPER_IDLE_LOCK_TIME 25 // msec (0-254, 255 keeps steppers enabled)
+  #define DEFAULT_STATUS_REPORT_MASK 1 // MPos enabled
+  #define DEFAULT_JUNCTION_DEVIATION 0.01 // mm
+  #define DEFAULT_ARC_TOLERANCE 0.002 // mm
+  #define DEFAULT_REPORT_INCHES 0 // false
+  #define DEFAULT_INVERT_ST_ENABLE 0 // false
+  #define DEFAULT_INVERT_LIMIT_PINS 0 // false
+  #define DEFAULT_SOFT_LIMIT_ENABLE 0 // false
+  #define DEFAULT_HARD_LIMIT_ENABLE 0  // false
+  #define DEFAULT_INVERT_PROBE_PIN 0 // false
+  #define DEFAULT_LASER_MODE 1 // true
+  #define DEFAULT_HOMING_ENABLE 0  // false
+  #define DEFAULT_HOMING_DIR_MASK 0 // move positive dir
+  #define DEFAULT_HOMING_FEED_RATE 25.0 // mm/min
+  #define DEFAULT_HOMING_SEEK_RATE 500.0 // mm/min
+  #define DEFAULT_HOMING_DEBOUNCE_DELAY 250 // msec (0-65k)
+  #define DEFAULT_HOMING_PULLOFF 1.0 // mm
 
 
 #endif

@@ -46,6 +46,10 @@
 #define INCH_PER_MM (0.0393701)
 #define TICKS_PER_MICROSECOND (F_CPU/1000000)
 
+#ifndef M_PI
+#define M_PI 3.14159
+#endif
+
 #define DELAY_MODE_DWELL       0
 #define DELAY_MODE_SYS_SUSPEND 1
 

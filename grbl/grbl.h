@@ -26,17 +26,35 @@
 #define GRBL_VERSION_BUILD "20170801"
 
 // Define standard libraries used by Grbl.
-#include <avr/io.h>
-#include <avr/pgmspace.h>
-#include <avr/interrupt.h>
-#include <avr/wdt.h>
-#include <util/delay.h>
 #include <math.h>
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "inc/hw_gpio.h"
+#include "inc/hw_ints.h"
+#include "inc/hw_memmap.h"
+#include <inc/hw_timer.h>
+#include "inc/hw_sysctl.h"
+#include "inc/hw_types.h"
+#include <driverlib/cpu.h>
+#include <driverlib/debug.h>
+#include <driverlib/eeprom.h>
+#include <driverlib/gpio.h>
+#include <driverlib/interrupt.h>
+#include <driverlib/pin_map.h>
+#include <driverlib/rom.h>
+#include <driverlib/sysctl.h>
+#include <driverlib/timer.h>
+
+#include "usblib/usblib.h"
+#include "usblib/usbcdc.h"
+#include "usblib/usb-ids.h"
+#include "usblib/device/usbdevice.h"
+#include "usblib/device/usbdcdc.h"
+
 
 // Define the Grbl system include files. NOTE: Do not alter organization.
 #include "config.h"

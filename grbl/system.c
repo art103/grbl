@@ -20,17 +20,54 @@
 
 #include "grbl.h"
 
+extern void LIMIT_INT_vect(void);
+void CONTROL_INT_vect(void);
+
+static uint64_t timer_load;
+volatile uint32_t system_time_ms = 0;
+
+void gp_timer_isr(void) {
+	TimerLoadSet64(TIMER4_BASE, timer_load);
+	TimerIntClear(TIMER4_BASE, TIMER_TIMA_TIMEOUT);
+	system_time_ms++;
+}
+
+// Delays variable defined milliseconds. Compiler compatibility fix for _delay_ms(),
+// which only accepts constants in future compiler releases.
+void delay_ms(uint16_t ms)
+{
+  uint32_t end = system_time_ms + ms;
+  while (system_time_ms < end);
+}
+
 
 void system_init()
 {
-  CONTROL_DDR &= ~(CONTROL_MASK); // Configure as input pins
+  // Configure GP timer
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER4);
+  TimerConfigure(TIMER4_BASE, TIMER_CFG_PERIODIC);
+
+  // Create a 1ms timer
+  timer_load = SysCtlClockGet() / 1000;
+  TimerLoadSet64(TIMER4_BASE, timer_load);
+  TimerIntRegister(TIMER4_BASE, TIMER_A, gp_timer_isr);
+  TimerIntEnable(TIMER4_BASE, TIMER_TIMA_TIMEOUT);
+  IntPrioritySet(INT_TIMER4A, CONFIG_GPTIMER_PRIORITY);
+
+  TimerEnable(TIMER4_BASE, TIMER_A);
+
+  GPIOPinTypeGPIOInput(CONTROL_PORT, CONTROL_MASK);
+
+  GPIOIntRegister(CONTROL_PORT, &CONTROL_INT_vect);
+
   #ifdef DISABLE_CONTROL_PIN_PULL_UP
-    CONTROL_PORT &= ~(CONTROL_MASK); // Normal low operation. Requires external pull-down.
+    // Normal low operation. Requires external pull-down.
+    GPIOPadConfigSet(CONTROL_PORT, CONTROL_MASK, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPD);
   #else
-    CONTROL_PORT |= CONTROL_MASK;   // Enable internal pull-up resistors. Normal high operation.
+    // Enable internal pull-up resistors. Normal high operation.
+    GPIOPadConfigSet(CONTROL_PORT, CONTROL_MASK, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPU);
   #endif
-  CONTROL_PCMSK |= CONTROL_MASK;  // Enable specific pins of the Pin Change Interrupt
-  PCICR |= (1 << CONTROL_INT);   // Enable Pin Change Interrupt
+  GPIOIntEnable(CONTROL_PORT, CONTROL_MASK); // Enable specific pins of the Pin Change Interrupt
 }
 
 
@@ -40,7 +77,7 @@ void system_init()
 uint8_t system_control_get_state()
 {
   uint8_t control_state = 0;
-  uint8_t pin = (CONTROL_PIN & CONTROL_MASK);
+  uint8_t pin = GPIOPinRead(CONTROL_PORT, CONTROL_MASK);
   #ifdef INVERT_CONTROL_PIN_MASK
     pin ^= INVERT_CONTROL_PIN_MASK;
   #endif
@@ -48,9 +85,15 @@ uint8_t system_control_get_state()
     #ifdef ENABLE_SAFETY_DOOR_INPUT_PIN
       if (bit_isfalse(pin,(1<<CONTROL_SAFETY_DOOR_BIT))) { control_state |= CONTROL_PIN_INDEX_SAFETY_DOOR; }
     #endif
+	#ifdef CONTROL_RESET_BIT
     if (bit_isfalse(pin,(1<<CONTROL_RESET_BIT))) { control_state |= CONTROL_PIN_INDEX_RESET; }
+	#endif
+	#ifdef CONTROL_FEED_HOLD_BIT
     if (bit_isfalse(pin,(1<<CONTROL_FEED_HOLD_BIT))) { control_state |= CONTROL_PIN_INDEX_FEED_HOLD; }
+	#endif
+	#ifdef CONTROL_CYCLE_START_BIT
     if (bit_isfalse(pin,(1<<CONTROL_CYCLE_START_BIT))) { control_state |= CONTROL_PIN_INDEX_CYCLE_START; }
+    #endif
   }
   return(control_state);
 }
@@ -60,7 +103,7 @@ uint8_t system_control_get_state()
 // only the realtime command execute variable to have the main program execute these when
 // its ready. This works exactly like the character-based realtime commands when picked off
 // directly from the incoming serial data stream.
-ISR(CONTROL_INT_vect)
+void CONTROL_INT_vect(void)
 {
   uint8_t pin = system_control_get_state();
   if (pin) {
@@ -77,6 +120,12 @@ ISR(CONTROL_INT_vect)
     #endif
     }
   }
+
+  if (limits_get_state()) {
+    LIMIT_INT_vect();
+  }
+
+  GPIOIntClear(CONTROL_PORT, CONTROL_MASK);
 }
 
 
@@ -351,57 +400,49 @@ uint8_t system_check_travel_limits(float *target)
 
 // Special handlers for setting and clearing Grbl's real-time execution flags.
 void system_set_exec_state_flag(uint8_t mask) {
-  uint8_t sreg = SREG;
-  cli();
+  //CPUcpsid();
   sys_rt_exec_state |= (mask);
-  SREG = sreg;
+  //CPUcpsie();
 }
 
 void system_clear_exec_state_flag(uint8_t mask) {
-  uint8_t sreg = SREG;
-  cli();
+  //CPUcpsid();
   sys_rt_exec_state &= ~(mask);
-  SREG = sreg;
+  //CPUcpsie();
 }
 
 void system_set_exec_alarm(uint8_t code) {
-  uint8_t sreg = SREG;
-  cli();
+  //CPUcpsid();
   sys_rt_exec_alarm = code;
-  SREG = sreg;
+  //CPUcpsie();
 }
 
 void system_clear_exec_alarm() {
-  uint8_t sreg = SREG;
-  cli();
+  //CPUcpsid();
   sys_rt_exec_alarm = 0;
-  SREG = sreg;
+  //CPUcpsie();
 }
 
 void system_set_exec_motion_override_flag(uint8_t mask) {
-  uint8_t sreg = SREG;
-  cli();
+  //CPUcpsid();
   sys_rt_exec_motion_override |= (mask);
-  SREG = sreg;
+  //CPUcpsie();
 }
 
 void system_set_exec_accessory_override_flag(uint8_t mask) {
-  uint8_t sreg = SREG;
-  cli();
+  //CPUcpsid();
   sys_rt_exec_accessory_override |= (mask);
-  SREG = sreg;
+  //CPUcpsie();
 }
 
 void system_clear_exec_motion_overrides() {
-  uint8_t sreg = SREG;
-  cli();
+  //CPUcpsid();
   sys_rt_exec_motion_override = 0;
-  SREG = sreg;
+  //CPUcpsie();
 }
 
 void system_clear_exec_accessory_overrides() {
-  uint8_t sreg = SREG;
-  cli();
+  //CPUcpsid();
   sys_rt_exec_accessory_override = 0;
-  SREG = sreg;
+  //CPUcpsie();
 }

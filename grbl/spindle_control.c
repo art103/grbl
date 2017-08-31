@@ -24,33 +24,43 @@
 
 #ifdef VARIABLE_SPINDLE
   static float pwm_gradient; // Precalulated value to speed up rpm to PWM conversions.
+  static uint32_t pwm_cycles;
+  static uint32_t pwm_divider;
 #endif
 
 
 void spindle_init()
 {
-  #ifdef VARIABLE_SPINDLE
+  GPIOPinTypeGPIOOutput(SPINDLE_ENABLE_PORT, (1 << SPINDLE_ENABLE_BIT));
+  GPIOPinWrite(SPINDLE_ENABLE_PORT, (1 << SPINDLE_ENABLE_BIT), 0);
 
-    // Configure variable spindle PWM and enable pin, if requried. On the Uno, PWM and enable are
-    // combined unless configured otherwise.
-    SPINDLE_PWM_DDR |= (1<<SPINDLE_PWM_BIT); // Configure as PWM output pin.
-    SPINDLE_TCCRA_REGISTER = SPINDLE_TCCRA_INIT_MASK; // Configure PWM output compare timer
-    SPINDLE_TCCRB_REGISTER = SPINDLE_TCCRB_INIT_MASK;
-    #ifdef USE_SPINDLE_DIR_AS_ENABLE_PIN
-      SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT); // Configure as output pin.
-    #else
-      SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT); // Configure as output pin.
-    #endif
+#ifdef VARIABLE_SPINDLE
 
-    pwm_gradient = SPINDLE_PWM_RANGE/(settings.rpm_max-settings.rpm_min);
+  pwm_gradient = SPINDLE_PWM_RANGE/(settings.rpm_max-settings.rpm_min);
 
-  #else
+  // Configure PWM (Power) and Pulse (PPI) timer
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
+  TimerConfigure(TIMER0_BASE, TIMER_CFG_SPLIT_PAIR|TIMER_CFG_A_PWM|TIMER_CFG_B_ONE_SHOT);
+  TimerControlLevel(TIMER0_BASE, TIMER_A, 1);
 
-    // Configure no variable spindle and only enable pin.
-    SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT); // Configure as output pin.
-    SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT); // Configure as output pin.
+  // Set PWM rate
+  pwm_cycles = SysCtlClockGet() / SPINDLE_PWM_FREQ; /*Hz*/
+  pwm_divider = pwm_cycles >> 16;
+  pwm_cycles /= (pwm_divider + 1);
 
-  #endif
+  // Setup PWM Timer
+  TimerPrescaleSet(TIMER0_BASE, TIMER_A, pwm_divider);
+  TimerLoadSet(TIMER0_BASE, TIMER_A, pwm_cycles);
+  TimerPrescaleMatchSet(TIMER0_BASE, TIMER_A, pwm_divider);
+
+  // Map the timer ccp pin
+  GPIOPinConfigure(GPIO_PB6_T0CCP0);
+  GPIOPinTypeTimer(SPINDLE_PWM_PORT, (1 << SPINDLE_PWM_BIT));
+
+  // Enable the PWM Timer
+  TimerEnable(TIMER0_BASE, TIMER_A);
+
+#endif
 
   spindle_stop();
 }
@@ -58,30 +68,10 @@ void spindle_init()
 
 uint8_t spindle_get_state()
 {
-	#ifdef VARIABLE_SPINDLE
-    #ifdef USE_SPINDLE_DIR_AS_ENABLE_PIN
-		  // No spindle direction output pin. 
-			#ifdef INVERT_SPINDLE_ENABLE_PIN
-			  if (bit_isfalse(SPINDLE_ENABLE_PORT,(1<<SPINDLE_ENABLE_BIT))) { return(SPINDLE_STATE_CW); }
-	    #else
-	 			if (bit_istrue(SPINDLE_ENABLE_PORT,(1<<SPINDLE_ENABLE_BIT))) { return(SPINDLE_STATE_CW); }
-	    #endif
-    #else
-      if (SPINDLE_TCCRA_REGISTER & (1<<SPINDLE_COMB_BIT)) { // Check if PWM is enabled.
-        if (SPINDLE_DIRECTION_PORT & (1<<SPINDLE_DIRECTION_BIT)) { return(SPINDLE_STATE_CCW); }
-        else { return(SPINDLE_STATE_CW); }
-      }
-    #endif
-	#else
-		#ifdef INVERT_SPINDLE_ENABLE_PIN
-		  if (bit_isfalse(SPINDLE_ENABLE_PORT,(1<<SPINDLE_ENABLE_BIT))) { 
-		#else
-		  if (bit_istrue(SPINDLE_ENABLE_PORT,(1<<SPINDLE_ENABLE_BIT))) {
-		#endif
-      if (SPINDLE_DIRECTION_PORT & (1<<SPINDLE_DIRECTION_BIT)) { return(SPINDLE_STATE_CCW); }
-      else { return(SPINDLE_STATE_CW); }
-    }
-	#endif
+#ifdef VARIABLE_SPINDLE
+	if (GPIOPinRead(SPINDLE_ENABLE_PORT, (1 << SPINDLE_ENABLE_BIT))) { return(SPINDLE_STATE_CW); }
+#endif
+
 	return(SPINDLE_STATE_DISABLE);
 }
 
@@ -91,21 +81,11 @@ uint8_t spindle_get_state()
 // Called by spindle_init(), spindle_set_speed(), spindle_set_state(), and mc_reset().
 void spindle_stop()
 {
+  GPIOPinWrite(SPINDLE_ENABLE_PORT, (1 << SPINDLE_ENABLE_BIT), 0);
+
   #ifdef VARIABLE_SPINDLE
-    SPINDLE_TCCRA_REGISTER &= ~(1<<SPINDLE_COMB_BIT); // Disable PWM. Output voltage is zero.
-    #ifdef USE_SPINDLE_DIR_AS_ENABLE_PIN
-      #ifdef INVERT_SPINDLE_ENABLE_PIN
-        SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);  // Set pin to high
-      #else
-        SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT); // Set pin to low
-      #endif
-    #endif
-  #else
-    #ifdef INVERT_SPINDLE_ENABLE_PIN
-      SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);  // Set pin to high
-    #else
-      SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT); // Set pin to low
-    #endif
+  // Set the PWM (Intensity).
+  TimerMatchSet(TIMER0_BASE, TIMER_A, pwm_cycles);
   #endif
 }
 
@@ -115,25 +95,14 @@ void spindle_stop()
   // and stepper ISR. Keep routine small and efficient.
   void spindle_set_speed(uint8_t pwm_value)
   {
-    SPINDLE_OCR_REGISTER = pwm_value; // Set PWM output level.
-    #ifdef SPINDLE_ENABLE_OFF_WITH_ZERO_SPEED
+    // Set PWM output level.
+	TimerMatchSet(TIMER0_BASE, TIMER_A, pwm_cycles - (pwm_cycles * pwm_value / 255));
+
       if (pwm_value == SPINDLE_PWM_OFF_VALUE) {
         spindle_stop();
       } else {
-        SPINDLE_TCCRA_REGISTER |= (1<<SPINDLE_COMB_BIT); // Ensure PWM output is enabled.
-        #ifdef INVERT_SPINDLE_ENABLE_PIN
-          SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT);
-        #else
-          SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);
-        #endif
+    	GPIOPinWrite(SPINDLE_ENABLE_PORT, (1 << SPINDLE_ENABLE_BIT), (1 << SPINDLE_ENABLE_BIT));
       }
-    #else
-      if (pwm_value == SPINDLE_PWM_OFF_VALUE) {
-        SPINDLE_TCCRA_REGISTER &= ~(1<<SPINDLE_COMB_BIT); // Disable PWM. Output voltage is zero.
-      } else {
-        SPINDLE_TCCRA_REGISTER |= (1<<SPINDLE_COMB_BIT); // Ensure PWM output is enabled.
-      }
-    #endif
   }
 
 
@@ -232,14 +201,6 @@ void spindle_stop()
   
   } else {
   
-    #ifndef USE_SPINDLE_DIR_AS_ENABLE_PIN
-      if (state == SPINDLE_ENABLE_CW) {
-        SPINDLE_DIRECTION_PORT &= ~(1<<SPINDLE_DIRECTION_BIT);
-      } else {
-        SPINDLE_DIRECTION_PORT |= (1<<SPINDLE_DIRECTION_BIT);
-      }
-    #endif
-  
     #ifdef VARIABLE_SPINDLE
       // NOTE: Assumes all calls to this function is when Grbl is not moving or must remain off.
       if (settings.flags & BITFLAG_LASER_MODE) { 
@@ -252,9 +213,9 @@ void spindle_stop()
       // NOTE: Without variable spindle, the enable bit should just turn on or off, regardless
       // if the spindle speed value is zero, as its ignored anyhow.
       #ifdef INVERT_SPINDLE_ENABLE_PIN
-        SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT);
+        GPIOPinWrite(SPINDLE_ENABLE_PORT, (1 << SPINDLE_ENABLE_BIT), 0);
       #else
-        SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);
+        GPIOPinWrite(SPINDLE_ENABLE_PORT, (1 << SPINDLE_ENABLE_BIT), (1 << SPINDLE_ENABLE_BIT));
       #endif    
     #endif
   

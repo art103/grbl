@@ -21,6 +21,7 @@
 
 #include "grbl.h"
 
+void LIMIT_INT_vect(void);
 
 // Homing axis search distance multiplier. Computed by this value times the cycle travel.
 #ifndef HOMING_AXIS_SEARCH_SCALAR
@@ -32,17 +33,20 @@
 
 void limits_init()
 {
-  LIMIT_DDR &= ~(LIMIT_MASK); // Set as input pins
+  // Set as input pins
+  GPIOPinTypeGPIOInput(LIMIT_PORT, LIMIT_MASK);
+  GPIOIntTypeSet(LIMIT_PORT, LIMIT_MASK, GPIO_BOTH_EDGES);
 
   #ifdef DISABLE_LIMIT_PIN_PULL_UP
-    LIMIT_PORT &= ~(LIMIT_MASK); // Normal low operation. Requires external pull-down.
+    // Normal low operation. Requires external pull-down.
+    GPIOPadConfigSet(LIMIT_PORT, LIMIT_MASK, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPD);
   #else
-    LIMIT_PORT |= (LIMIT_MASK);  // Enable internal pull-up resistors. Normal high operation.
+    // Enable internal pull-up resistors. Normal high operation.
+    GPIOPadConfigSet(LIMIT_PORT, LIMIT_MASK, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPU);
   #endif
 
   if (bit_istrue(settings.flags,BITFLAG_HARD_LIMIT_ENABLE)) {
-    LIMIT_PCMSK |= LIMIT_MASK; // Enable specific pins of the Pin Change Interrupt
-    PCICR |= (1 << LIMIT_INT); // Enable Pin Change Interrupt
+	GPIOIntEnable(LIMIT_PORT, LIMIT_MASK); // Enable specific pins of the Pin Change Interrupt
   } else {
     limits_disable();
   }
@@ -58,8 +62,7 @@ void limits_init()
 // Disables hard limits.
 void limits_disable()
 {
-  LIMIT_PCMSK &= ~LIMIT_MASK;  // Disable specific pins of the Pin Change Interrupt
-  PCICR &= ~(1 << LIMIT_INT);  // Disable Pin Change Interrupt
+	GPIOIntDisable(LIMIT_PORT, LIMIT_MASK);  // Disable specific pins of the Pin Change Interrupt
 }
 
 
@@ -69,7 +72,7 @@ void limits_disable()
 uint8_t limits_get_state()
 {
   uint8_t limit_state = 0;
-  uint8_t pin = (LIMIT_PIN & LIMIT_MASK);
+  uint8_t pin = GPIOPinRead(LIMIT_PORT, LIMIT_MASK);
   #ifdef INVERT_LIMIT_PIN_MASK
     pin ^= INVERT_LIMIT_PIN_MASK;
   #endif
@@ -96,8 +99,10 @@ uint8_t limits_get_state()
 // special pinout for an e-stop, but it is generally recommended to just directly connect
 // your e-stop switch to the Arduino reset pin, since it is the most correct way to do this.
 #ifndef ENABLE_SOFTWARE_DEBOUNCE
-  ISR(LIMIT_INT_vect) // DEFAULT: Limit pin change interrupt process.
+  void LIMIT_INT_vect(void) // DEFAULT: Limit pin change interrupt process.
   {
+	GPIOIntClear(LIMIT_PORT, LIMIT_MASK);
+
     // Ignore limit switches if already in an alarm state or in-process of executing an alarm.
     // When in the alarm state, Grbl should have been reset or will force a reset, so any pending
     // moves in the planner and serial buffers are all cleared and newly sent blocks will be
