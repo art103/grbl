@@ -613,16 +613,14 @@
 #define PSTR(x)	x
 #define F_CPU SysCtlClockGet()
 #define CYCLES_PER_MICROSECOND (SysCtlClockGet()/1000000)  // 80MHz = 80
-#define sei CPUcpsie
-
 
 // Interrupt Priorities (0 highest)
-#define CONFIG_STEPPER_PRIORITY     (0 << 5)
-#define CONFIG_LASER_PRIORITY       (1 << 5)
-#define CONFIG_USB_PRIORITY         (2 << 5)
-#define CONFIG_SENSE_PRIORITY       (3 << 5)
-#define CONFIG_JOY_PRIORITY         (4 << 5)
-#define CONFIG_GPTIMER_PRIORITY     (7 << 5)
+#define CONFIG_GPTIMER_PRIORITY     (0 << 5)
+#define CONFIG_STEPPER_PRIORITY     (1 << 5)
+#define CONFIG_LASER_PRIORITY       (2 << 5)
+#define CONFIG_USB_PRIORITY         (3 << 5)
+#define CONFIG_SENSE_PRIORITY       (4 << 5)
+#define CONFIG_JOY_PRIORITY         (5 << 5)
 
 
 /* ---------------------------------------------------------------------------------------
@@ -728,7 +726,7 @@
   #define DEFAULT_HARD_LIMIT_ENABLE 0  // false
   #define DEFAULT_INVERT_PROBE_PIN 0 // false
   #define DEFAULT_LASER_MODE 1 // true
-  #define DEFAULT_HOMING_ENABLE 0  // false
+  #define DEFAULT_HOMING_ENABLE 1  // false
   #define DEFAULT_HOMING_DIR_MASK 0 // move positive dir
   #define DEFAULT_HOMING_FEED_RATE 25.0 // mm/min
   #define DEFAULT_HOMING_SEEK_RATE 500.0 // mm/min

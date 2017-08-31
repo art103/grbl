@@ -316,6 +316,9 @@ void TIMER1_COMPA_vect(void)
   // Set the direction pins a couple of nanoseconds before we step the steppers
   GPIOPinWrite(DIRECTION_PORT, DIRECTION_MASK, st.dir_outbits);
 
+  // Clear the IRQ flag
+  TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
+
   // Enable step pulse reset timer so that The Stepper Port Reset Interrupt can reset the signal after
   // exactly settings.pulse_microseconds microseconds, independent of the main Timer1 prescaler.
   TimerPrescaleSet(TIMER1_BASE, TIMER_B, 0);
@@ -330,8 +333,6 @@ void TIMER1_COMPA_vect(void)
   #endif
 
   busy = true;
-  sei(); // Re-enable interrupts to allow Stepper Port Reset Interrupt to fire on-time.
-         // NOTE: The remaining code in this ISR will finish before returning to main program.
 
   // If there is no step segment, attempt to pop one from the stepper buffer
   if (st.exec_segment == NULL) {
@@ -347,7 +348,6 @@ void TIMER1_COMPA_vect(void)
 
       // Initialize step segment timing per step and load number of steps to execute.
       TimerLoadSet(TIMER1_BASE, TIMER_A, st.exec_segment->cycles_per_tick);
-      TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
 
       st.step_count = st.exec_segment->n_step; // NOTE: Can sometimes be zero when moving slow.
       // If the new segment starts a new planner block, initialize stepper variables and counters.
