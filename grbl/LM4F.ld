@@ -35,7 +35,6 @@ SECTIONS {
   } > FLASH
 
   /* .ARM.exidx is sorted, so has to go in its own output section. */
-  /*
   PROVIDE_HIDDEN (__exidx_start = .);
   .ARM.exidx :
   {
@@ -43,7 +42,7 @@ SECTIONS {
       _etext = .;
      _sidata = _etext;
   } > FLASH
-  PROVIDE_HIDDEN (__exidx_end = .);*/
+  PROVIDE_HIDDEN (__exidx_end = .);
 
   .data : AT ( _sidata )
   {
