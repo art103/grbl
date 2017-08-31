@@ -1,4 +1,15 @@
-static unsigned char eeprom_data[1024];
+#include "grbl.h"
+
+static int initialized = 0;
+
+void eeprom_init(void)
+{
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_EEPROM0);
+
+  EEPROMInit();
+
+  initialized = 1;
+}
 
 // This file has been prepared for Doxygen automatic documentation generation.
 /*! \file ********************************************************************
@@ -35,7 +46,16 @@ static unsigned char eeprom_data[1024];
  */
 unsigned char eeprom_get_char( unsigned int addr )
 {
-	return eeprom_data[addr]; // Return the byte read from EEPROM.
+	uint32_t data;
+	unsigned char ret;
+
+	if (initialized == 0) { eeprom_init(); }
+
+	EEPROMRead(&data, addr & ~0x3, 4);
+	ret = ((unsigned char*)&data)[addr % 4];
+	//printf("EEPROM(R) %d = %d\r\n", addr, ret);
+
+	return ret; // Return the byte read from EEPROM.
 }
 
 /*! \brief  Write byte to EEPROM.
@@ -57,7 +77,15 @@ unsigned char eeprom_get_char( unsigned int addr )
  */
 void eeprom_put_char( unsigned int addr, unsigned char new_value )
 {
-	eeprom_data[addr] = new_value;
+	uint32_t data;
+	unsigned char *ptr = (unsigned char*)&data;
+
+	if (initialized == 0) { eeprom_init(); }
+
+	// Read, modify, write (EEPROM transactions are DWORDs)
+	EEPROMRead(&data, addr & ~0x3, 4);
+	ptr[addr % 4] = new_value;
+	EEPROMProgram(&data, addr & ~0x3, 4);
 }
 
 // Extensions added as part of Grbl 
