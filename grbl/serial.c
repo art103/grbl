@@ -29,8 +29,6 @@ uint8_t serial_rx_buffer[RX_RING_BUFFER];
 uint8_t serial_rx_buffer_head = 0;
 volatile uint8_t serial_rx_buffer_tail = 0;
 
-static volatile bool g_bUSBConfigured = false;
-
 // Returns the number of bytes available in the RX serial buffer.
 uint8_t serial_get_rx_buffer_available()
 {
@@ -227,22 +225,12 @@ ControlHandler(void *pvCBData, uint32_t ui32Event,
         // We are connected to a host and communication is now possible.
         //
         case USB_EVENT_CONNECTED:
-            g_bUSBConfigured = true;
-            //GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_2, GPIO_PIN_2);
-
-            //
-            // Flush our buffers.
-            //
-            USBBufferFlush(&g_sTxBuffer);
-            USBBufferFlush(&g_sRxBuffer);
             break;
 
         //
         // The host has disconnected.
         //
         case USB_EVENT_DISCONNECTED:
-            g_bUSBConfigured = false;
-            GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_2, 0);
             break;
 
         //
@@ -276,7 +264,15 @@ ControlHandler(void *pvCBData, uint32_t ui32Event,
         // Set the current serial communication parameters.
         //
         case USBD_CDC_EVENT_SET_CONTROL_LINE_STATE:
-            break;
+        	if (ui32MsgValue & (1 << 0)) {
+                //
+                // Flush our buffers.
+                //
+                USBBufferFlush(&g_sTxBuffer);
+                USBBufferFlush(&g_sRxBuffer);
+            	mc_reset();
+        	}
+        	break;
 
         //
         // Send a break condition on the serial line.
