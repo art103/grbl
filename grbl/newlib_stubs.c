@@ -57,8 +57,10 @@ int _write(int file, char *ptr, int len) {
 
     switch (file) {
     case STDOUT_FILENO: /*stdout*/
-    	for (n=0; n<len; ++n)
-    		serial_write(ptr[n]);
+    	for (n=0; n<len; ++n) {
+    		//serial_write(ptr[n]);
+    		UARTCharPut(UART0_BASE, ptr[n]);
+    	}
     	break;
 
     case STDERR_FILENO:
