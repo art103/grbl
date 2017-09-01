@@ -46,4 +46,7 @@ void protocol_auto_cycle_start();
 // Block until all buffered steps are executed
 void protocol_buffer_synchronize();
 
+// Inject a line when the serial stream is empty (used for local Jog)
+void protocol_inject_line(char *line);
+
 #endif

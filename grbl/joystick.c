@@ -17,13 +17,13 @@
 
 #include "grbl.h"
 
-#if 0
 // The joystick has no effect when the position is central +/- threshold.
-#define ZERO_THRESHOLD	0x50
+#define ZERO_THRESHOLD	0x300
 
-#define STATUS_CH0_IDLE	0x01
-#define STATUS_CH1_IDLE	0x02
-#define STATUS_XHAIR_ON	0x04
+#define STATUS_CH0_IDLE	    0x01
+#define STATUS_CH1_IDLE	    0x02
+
+volatile char jog_cmd[32];
 
 //
 // This array is used for storing the data read from the ADC FIFO. It
@@ -34,10 +34,9 @@
 static unsigned long joystick_x[1] = {0};
 static unsigned long joystick_y[1] = {0};
 static unsigned long joystick_center[2] = {0};
-static unsigned long status = STATUS_CH0_IDLE | STATUS_CH1_IDLE;
-static uint8_t enabled = 0;
-
-static struct task_manual_move_data task_data = {0.0};
+static volatile uint8_t adc_status = STATUS_CH0_IDLE | STATUS_CH1_IDLE;
+static volatile uint8_t jog_status = 0;
+static volatile uint8_t jog_count = 0;
 
 static void x_handler(void) {
     //
@@ -54,7 +53,7 @@ static void x_handler(void) {
     if (joystick_center[0] == 0)
     	joystick_center[0] = joystick_x[0];
 
-    status |= STATUS_CH0_IDLE;
+    adc_status |= STATUS_CH0_IDLE;
 }
 
 static void y_handler(void) {
@@ -72,80 +71,87 @@ static void y_handler(void) {
     if (joystick_center[1] == 0)
     	joystick_center[1] = joystick_y[0];
 
-    status |= STATUS_CH1_IDLE;
+    adc_status |= STATUS_CH1_IDLE;
 }
 
 static void button_handler(void) {
-	GPIOIntClear(JOY_PORT, JOY_MASK);
+	GPIOIntClear(GPIO_PORTF_BASE, GPIO_PIN_0);
 
-	if (GPIOPinRead(JOY_PORT, JOY_MASK) > 0)
+	if (GPIOPinRead(GPIO_PORTF_BASE, GPIO_PIN_0) > 0)
 	{
-		enabled = 0;
-		GPIOPinWrite(ASSIST_PORT,  (1<< AUX1_ASSIST_BIT), 0);
-		task_enable(TASK_SET_OFFSET, 0);
-	}
-	else
-	{
-		enabled = 1;
-		GPIOPinWrite(ASSIST_PORT,  (1<< AUX1_ASSIST_BIT), (1<< AUX1_ASSIST_BIT));
+		protocol_inject_line("G10L20P0X0Y0Z0");
 	}
 }
 
 static void joystick_isr(void) {
 
-	TimerIntClear(JOY_TIMER, TIMER_TIMA_TIMEOUT);
+	TimerIntClear(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
 
 	// Only allow the joystick when AUX1 (Crosshair) is enabled
-	if (enabled) {
+	if (1) {
 
 		unsigned long x = joystick_x[0];
 		unsigned long y = joystick_y[0];
-		double x_off = 0;
-		double y_off = 0;
+		long x_off = 0;
+		long y_off = 0;
 
 		if (x > joystick_center[0] + ZERO_THRESHOLD) {
-			x_off = (double)(x - joystick_center[0]) / 0x800;
+			x_off = 1;
 		} else if (x < joystick_center[0] - ZERO_THRESHOLD) {
-			x_off = -(double)(joystick_center[0] - x) / 0x800;
+			x_off = -1;
 		}
 
 		if (y > joystick_center[1] + ZERO_THRESHOLD) {
-			y_off = (double)(y - joystick_center[1]) / 0x800;
+			y_off = 1;
 		} else if (y < joystick_center[1] - ZERO_THRESHOLD) {
-			y_off = -(double)(joystick_center[1] - y) / 0x800;
+			y_off = -1;
 		}
 
-		// Have two speed levels for accuracy and speed when wanted.
-		if (fabs(y_off) < 0.5)
-			y_off /= 50.0;
-		else// if (fabs(y_off) < 1.0)
-			y_off /= 5.0;
+		if (x_off == 0 && y_off == 0)
+		{
+			// Back in the centre, send the jog
+			jog_status = 0;
+			jog_count = 4;
+		}
+		else// if (jog_status < 5)
+		{
+			jog_count++;
 
-		if (fabs(x_off) < 0.5)
-			x_off /= 50.0;
-		else// if (fabs(x_off) < 1.0)
-			x_off /= 5.0;
+			// Get up to date ADC readings (to catch return to center),
+			// but repeat jog at lower rate.
+			if (jog_count > 5)
+			{
+				jog_count = 0;
 
-#ifdef JOY_INVERT_Y
-		task_data.x_offset = -y_off;
-#else
-		task_data.x_offset = y_off;
-#endif
+				jog_status++;
 
-#ifdef JOY_INVERT_X
-		task_data.y_offset = -x_off;
-#else
-		task_data.y_offset = x_off;
-#endif
-		task_data.rate = 20000;
-		task_enable(TASK_MANUAL_MOVE, &task_data);
+				if (jog_status != 0)
+				{
+					int jog_len = 10;
 
+					if (jog_status < 4)
+					{
+						jog_len = 1;
+					}
+					else if (jog_status < 8)
+					{
+						jog_len = 5;
+					}
+
+					x_off *= -jog_len;
+					y_off *= -jog_len;
+
+					sprintf(jog_cmd, "$J=G91G21X%d.0Y%d.0F1000", y_off, x_off);
+					protocol_inject_line(jog_cmd);
+				}
+			}
+		}
 		//
 	    // Trigger the next ADC conversion.
 	    //
-		if (status & STATUS_CH0_IDLE)
+		if (adc_status & STATUS_CH0_IDLE)
 			ADCProcessorTrigger(ADC0_BASE, 0);
-		if (status & STATUS_CH1_IDLE)
+		if (adc_status & STATUS_CH1_IDLE)
 			ADCProcessorTrigger(ADC0_BASE, 1);
 	}
 }
@@ -153,11 +159,11 @@ static void joystick_isr(void) {
 void joystick_init(void) {
 
 	// Register Joystick button isr
-	GPIOPinTypeGPIOInput(JOY_PORT, JOY_MASK);
-	GPIOPadConfigSet(JOY_PORT, JOY_MASK, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPU);
-	GPIOIntTypeSet(JOY_PORT, JOY_MASK, GPIO_BOTH_EDGES);
-	GPIOIntRegister(JOY_PORT, button_handler);
-	GPIOIntEnable(JOY_PORT, JOY_MASK);
+	GPIOPinTypeGPIOInput(GPIO_PORTF_BASE, GPIO_PIN_0);
+	GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_0, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPU);
+	GPIOIntTypeSet(GPIO_PORTF_BASE, GPIO_PIN_0, GPIO_BOTH_EDGES);
+	GPIOIntRegister(GPIO_PORTF_BASE, button_handler);
+	GPIOIntEnable(GPIO_PORTF_BASE, GPIO_PIN_0);
 
     //
     // The ADC0 peripheral must be enabled for use.
@@ -194,27 +200,12 @@ void joystick_init(void) {
 
 	// Configure timer
 	SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
-	TimerConfigure(JOY_TIMER, TIMER_CFG_PERIODIC);
+	TimerConfigure(TIMER3_BASE, TIMER_CFG_PERIODIC);
 
-	// Create a 10ms timer callback
-	TimerLoadSet64(JOY_TIMER, SysCtlClockGet() / 500);
-	TimerIntRegister(JOY_TIMER, TIMER_A, joystick_isr);
-	TimerIntEnable(JOY_TIMER, TIMER_TIMA_TIMEOUT);
+	// Create a 50ms timer callback
+	TimerLoadSet64(TIMER3_BASE, SysCtlClockGet() / 20);
+	TimerIntRegister(TIMER3_BASE, TIMER_A, joystick_isr);
+	TimerIntEnable(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
 	IntPrioritySet(INT_TIMER3A, CONFIG_JOY_PRIORITY);
-	TimerEnable(JOY_TIMER, TIMER_A);
+	TimerEnable(TIMER3_BASE, TIMER_A);
 }
-
-void joystick_enable(void){
-	GPIOIntEnable(JOY_PORT, JOY_MASK);
-    ADCIntEnable(ADC0_BASE, 0);
-    ADCIntEnable(ADC0_BASE, 1);
-}
-
-void joystick_disable(void){
-	enabled = 0;
-	GPIOIntDisable(JOY_PORT, JOY_MASK);
-    ADCIntDisable(ADC0_BASE, 0);
-    ADCIntDisable(ADC0_BASE, 1);
-	GPIOPinWrite(ASSIST_PORT,  (1<< AUX1_ASSIST_BIT), 0);
-}
-#endif

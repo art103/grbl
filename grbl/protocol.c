@@ -28,6 +28,7 @@
 
 
 static char line[LINE_BUFFER_SIZE]; // Line to be executed. Zero-terminated.
+static char *injected_line = NULL;
 
 static void protocol_exec_rt_suspend();
 
@@ -158,6 +159,21 @@ void protocol_main_loop()
 
     protocol_execute_realtime();  // Runtime command check point.
     if (sys.abort) { return; } // Bail to main() program loop to reset system.
+
+    // Check to see if we need to inject a command
+    if (injected_line != NULL) {
+      if (injected_line[0] == '$') {
+        // Grbl '$' system command
+        system_execute_line(injected_line);
+      } else if (sys.state & (STATE_ALARM | STATE_JOG)) {
+        // Everything else is gcode. Block if in alarm or jog mode.
+      } else {
+        // Parse and execute g-code block.
+        gc_execute_line(injected_line);
+      }
+
+      injected_line = NULL;
+    }
   }
 
   return; /* Never reached */
@@ -759,4 +775,9 @@ static void protocol_exec_rt_suspend()
     protocol_exec_rt_system();
 
   }
+}
+
+void protocol_inject_line(char *line)
+{
+	injected_line = line;
 }

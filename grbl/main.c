@@ -38,42 +38,55 @@ volatile uint8_t sys_rt_exec_accessory_override; // Global realtime executor bit
 
 int main(void)
 {
-	//
-	// Enable lazy stacking for interrupt handlers.  This allows floating-point
-	// instructions to be used within interrupt handlers, but at the expense of
-	// extra stack usage.
-	//
-	ROM_FPULazyStackingEnable();
+  //
+  // Enable lazy stacking for interrupt handlers.  This allows floating-point
+  // instructions to be used within interrupt handlers, but at the expense of
+  // extra stack usage.
+  //
+  ROM_FPULazyStackingEnable();
 
-	// Configure system clock
-	ROM_SysCtlClockSet(SYSCTL_SYSDIV_2_5|SYSCTL_USE_PLL|SYSCTL_XTAL_16MHZ|SYSCTL_OSC_MAIN); //80MHZ
+  // Configure system clock
+  ROM_SysCtlClockSet(SYSCTL_SYSDIV_2_5|SYSCTL_USE_PLL|SYSCTL_XTAL_16MHZ|SYSCTL_OSC_MAIN); //80MHZ
 
-	/* Initialise the GPIO Peripherals */
-	SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
-	SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);
-	SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);
-	SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOD);
-	SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
-	SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
+  /* Initialise the GPIO Peripherals */
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOD);
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
 
-	/* Setup the LED GPIO pins used */
-	GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_1); /* LM4F120H5QR_LED_RED */
-	GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_2); /* LM4F120H5QR_LED_BLUE */
-	GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_3); /* LM4F120H5QR_LED_GREEN */
+  /* Configure Serial (Debug) */
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
+  GPIOPinConfigure(GPIO_PA0_U0RX);
+  GPIOPinConfigure(GPIO_PA1_U0TX);
+  GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
+  UARTConfigSetExpClk(UART0_BASE, SysCtlClockGet(), 115200,
+                      (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE |
+                       UART_CONFIG_PAR_NONE));
 
-	/* Setup the button GPIO pins used */
-	GPIOPinTypeGPIOInput(GPIO_PORTF_BASE, GPIO_PIN_4);  /* LM4F120H5QR_GPIO_SW1 */
-	GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_4, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPU);
+  /* Setup the LED GPIO pins used */
+  GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_1); /* LM4F120H5QR_LED_RED */
+  GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_2); /* LM4F120H5QR_LED_BLUE */
+  GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_3); /* LM4F120H5QR_LED_GREEN */
 
-	/* PF0 requires unlocking before configuration */
-	HWREG(GPIO_PORTF_BASE + GPIO_O_LOCK) = GPIO_LOCK_KEY;
-	HWREG(GPIO_PORTF_BASE + GPIO_O_CR) |= GPIO_PIN_0;
-	GPIOPinTypeGPIOInput(GPIO_PORTF_BASE, GPIO_PIN_0);  /* LM4F120H5QR_GPIO_SW2 */
-	GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_0, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPU);
-	HWREG(GPIO_PORTF_BASE + GPIO_O_LOCK) = GPIO_LOCK_M;
+  /* Set up AUX1 (Cross Hair) */
+  GPIOPinTypeGPIOOutput(GPIO_PORTD_BASE, GPIO_PIN_6);
+  GPIOPinWrite(GPIO_PORTD_BASE, GPIO_PIN_6, 0);
 
-	/* Turn off user LEDs */
-	GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3 | GPIO_PIN_2 | GPIO_PIN_1, 0);
+  /* Setup the button GPIO pins used */
+  GPIOPinTypeGPIOInput(GPIO_PORTF_BASE, GPIO_PIN_4);  /* LM4F120H5QR_GPIO_SW1 */
+  GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_4, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPU);
+
+  /* PF0 requires unlocking before configuration */
+  HWREG(GPIO_PORTF_BASE + GPIO_O_LOCK) = GPIO_LOCK_KEY;
+  HWREG(GPIO_PORTF_BASE + GPIO_O_CR) |= GPIO_PIN_0;
+  GPIOPinTypeGPIOInput(GPIO_PORTF_BASE, GPIO_PIN_0);  /* LM4F120H5QR_GPIO_SW2 */
+  GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_0, GPIO_STRENGTH_4MA, GPIO_PIN_TYPE_STD_WPU);
+  HWREG(GPIO_PORTF_BASE + GPIO_O_LOCK) = GPIO_LOCK_M;
+
+  /* Turn off user LEDs */
+  GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3 | GPIO_PIN_2 | GPIO_PIN_1, 0);
 
   // Initialize system upon power-up.
   serial_init();   // Setup serial baud rate and interrupts
@@ -82,7 +95,6 @@ int main(void)
   system_init();   // Configure pinout pins and pin-change interrupt
 
   memset(sys_position,0,sizeof(sys_position)); // Clear machine position.
-  CPUcpsie();  // Enable interrupts
 
   // Initialize system state.
   #ifdef FORCE_INITIALIZATION_ALARM
@@ -114,7 +126,7 @@ int main(void)
     sys.f_override = DEFAULT_FEED_OVERRIDE;  // Set to 100%
     sys.r_override = DEFAULT_RAPID_OVERRIDE; // Set to 100%
     sys.spindle_speed_ovr = DEFAULT_SPINDLE_SPEED_OVERRIDE; // Set to 100%
-		memset(sys_probe_position,0,sizeof(sys_probe_position)); // Clear probe position.
+    memset(sys_probe_position,0,sizeof(sys_probe_position)); // Clear probe position.
     sys_probe_state = 0;
     sys_rt_exec_state = 0;
     sys_rt_exec_alarm = 0;
@@ -137,6 +149,9 @@ int main(void)
 
     // Print welcome message. Indicates an initialization has occured at power-up or with a reset.
     report_init_message();
+
+    // Set up the Joystick
+    joystick_init();
 
     // Start Grbl main loop. Processes program inputs and executes them.
     protocol_main_loop();
