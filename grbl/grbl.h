@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #include "inc/hw_gpio.h"
 #include "inc/hw_ints.h"
@@ -39,6 +40,7 @@
 #include <inc/hw_timer.h>
 #include "inc/hw_sysctl.h"
 #include "inc/hw_types.h"
+#include <driverlib/adc.h>
 #include <driverlib/cpu.h>
 #include <driverlib/debug.h>
 #include <driverlib/eeprom.h>
@@ -48,6 +50,7 @@
 #include <driverlib/rom.h>
 #include <driverlib/sysctl.h>
 #include <driverlib/timer.h>
+#include <driverlib/uart.h>
 
 #include "usblib/usblib.h"
 #include "usblib/usbcdc.h"
