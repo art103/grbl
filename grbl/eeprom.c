@@ -53,7 +53,6 @@ unsigned char eeprom_get_char( unsigned int addr )
 
 	EEPROMRead(&data, addr & ~0x3, 4);
 	ret = ((unsigned char*)&data)[addr % 4];
-	//printf("EEPROM(R) %d = %d\r\n", addr, ret);
 
 	return ret; // Return the byte read from EEPROM.
 }
