@@ -224,12 +224,12 @@ void st_wake_up()
   // Initialize step pulse timing from settings. Here to ensure updating after re-writing.
   #ifdef STEP_PULSE_DELAY
     // Set total step pulse time after direction pin set. Ad hoc computation from oscilloscope.
-    st.step_pulse_time = -(((settings.pulse_microseconds+STEP_PULSE_DELAY-2)*TICKS_PER_MICROSECOND) >> 3);
+    st.step_pulse_time = settings.pulse_microseconds * TICKS_PER_MICROSECOND;
     // Set delay between direction pin write and step command.
-    OCR0A = -(((settings.pulse_microseconds)*TICKS_PER_MICROSECOND) >> 3);
+    OCR0A = settings.pulse_microseconds * TICKS_PER_MICROSECOND;
   #else // Normal operation
     // Set step pulse time. Ad hoc computation from oscilloscope. Uses two's complement.
-    st.step_pulse_time = -(((settings.pulse_microseconds-2)*TICKS_PER_MICROSECOND) >> 3);
+    st.step_pulse_time = settings.pulse_microseconds * TICKS_PER_MICROSECOND;
   #endif
 
   // Enable Stepper Driver Interrupt
@@ -311,19 +311,26 @@ void st_go_idle()
 // with probing and homing cycles that require true real-time positions.
 void TIMER1_COMPA_vect(void)
 {
+  // Clear the IRQ flag
+  TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
+
   if (busy) { return; } // The busy-flag is used to avoid reentering this interrupt
+
+  busy = true;
 
   // Set the direction pins a couple of nanoseconds before we step the steppers
   GPIOPinWrite(DIRECTION_PORT, DIRECTION_MASK, st.dir_outbits);
 
-  // Clear the IRQ flag
-  TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
-
   // Enable step pulse reset timer so that The Stepper Port Reset Interrupt can reset the signal after
   // exactly settings.pulse_microseconds microseconds, independent of the main Timer1 prescaler.
-  TimerPrescaleSet(TIMER1_BASE, TIMER_B, 0);
-  TimerLoadSet(TIMER1_BASE, TIMER_B, (st.step_pulse_time) * CYCLES_PER_MICROSECOND);
+  TimerLoadSet(TIMER1_BASE, TIMER_B, st.step_pulse_time);
   TimerEnable(TIMER1_BASE, TIMER_B);
+
+  if (sys.state & (STATE_JOG)) {
+		GPIOPinWrite(GPIO_PORTD_BASE, GPIO_PIN_6, GPIO_PIN_6);
+  } else {
+	GPIOPinWrite(GPIO_PORTD_BASE, GPIO_PIN_6, 0);
+  }
 
   // Then pulse the stepping pins
   #ifdef STEP_PULSE_DELAY
@@ -331,8 +338,6 @@ void TIMER1_COMPA_vect(void)
   #else  // Normal operation
     GPIOPinWrite(STEP_PORT, STEP_MASK, st.step_outbits);
   #endif
-
-  busy = true;
 
   // If there is no step segment, attempt to pop one from the stepper buffer
   if (st.exec_segment == NULL) {
@@ -538,17 +543,19 @@ void stepper_init()
   SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER1);
   TimerConfigure(TIMER1_BASE, TIMER_CFG_SPLIT_PAIR | TIMER_CFG_A_PERIODIC | TIMER_CFG_B_ONE_SHOT);
 
-  // Configure Timer 1: Stepper Driver Interrupt
+  // Configure Timer 1a: Stepper Driver Interrupt
   TimerIntRegister(TIMER1_BASE, TIMER_A, TIMER1_COMPA_vect);
   ROM_IntEnable(INT_TIMER1A);
   TimerIntEnable(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
   IntPrioritySet(INT_TIMER1A, CONFIG_STEPPER_PRIORITY);
+  TimerPrescaleSet(TIMER1_BASE, TIMER_A, 0);
 
-  // Configure Timer 0: Stepper Port Reset Interrupt
+  // Configure Timer 1b: Stepper Port Reset Interrupt
   TimerIntRegister(TIMER1_BASE, TIMER_B, TIMER0_OVF_vect);
   ROM_IntEnable(INT_TIMER1B);
   TimerIntEnable(TIMER1_BASE, TIMER_TIMB_TIMEOUT);
   IntPrioritySet(INT_TIMER1B, CONFIG_STEPPER_PRIORITY);
+  TimerPrescaleSet(TIMER1_BASE, TIMER_B, 0);
 }
 
 
@@ -950,7 +957,7 @@ void st_prep_buffer()
       }
     }
 
-    // Compute segment step rate. Since steps are integers and mm distances traveled are not,
+    // Compute segment step rate. Since steps are integers and mm distances travelled are not,
     // the end of every segment can have a partial step of varying magnitudes that are not
     // executed, because the stepper ISR requires whole steps due to the AMASS algorithm. To
     // compensate, we track the time to execute the previous segment's partial step and simply
@@ -962,7 +969,10 @@ void st_prep_buffer()
     float inv_rate = dt/(last_n_steps_remaining - step_dist_remaining); // Compute adjusted step rate inverse
 
     // Compute CPU cycles per step for the prepped segment.
-    uint32_t cycles = ceil( (TICKS_PER_MICROSECOND*1000000*60)*inv_rate ); // (cycles/step)
+    // Reduce intermediate by /100 to avoid float overflow (multiplier for us to s is 100x too small).
+    uint32_t cycles = ceil( (TICKS_PER_MICROSECOND*10000*60)*inv_rate ); // (cycles/step)
+    // Revert /100 above.
+    cycles *= 100;
 
     #ifdef ADAPTIVE_MULTI_AXIS_STEP_SMOOTHING
       // Compute step timing and multi-axis smoothing level.
@@ -979,14 +989,16 @@ void st_prep_buffer()
       else { prep_segment->cycles_per_tick = 0xffff; } // Just set the slowest speed possible.
     #else
       // Compute step timing and timer prescalar for normal step generation.
+      uint32_t calc = cycles;
       prep_segment->prescaler = 0;
-      prep_segment->cycles_per_tick = cycles;
 
-      while (prep_segment->cycles_per_tick > 65535)
+      while (calc > 65535)
       {
     	  prep_segment->prescaler++;
-    	  prep_segment->cycles_per_tick = cycles / (1 + timer_prescaler);
+    	  calc = cycles / (1 + prep_segment->prescaler);
       }
+
+      prep_segment->cycles_per_tick = calc;
     #endif
 
     // Segment complete! Increment segment buffer indices, so stepper ISR can immediately execute it.
