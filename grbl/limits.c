@@ -71,8 +71,11 @@ void limits_disable()
 // number in bit position, i.e. Z_AXIS is (1<<2) or bit 2, and Y_AXIS is (1<<1) or bit 1.
 uint8_t limits_get_state()
 {
+#ifdef DISABLE_SENSORS_FOR_DEBUG
+  return 0;
+#endif
   uint8_t limit_state = 0;
-  uint8_t pin = GPIOPinRead(LIMIT_PORT, LIMIT_MASK);
+  uint8_t pin = GPIOPinRead(LIMIT_PORT, LIMIT_MASK) & GPIOPinRead(LIMIT_PORT, LIMIT_MASK) & GPIOPinRead(LIMIT_PORT, LIMIT_MASK);
   #ifdef INVERT_LIMIT_PIN_MASK
     pin ^= INVERT_LIMIT_PIN_MASK;
   #endif
@@ -83,6 +86,7 @@ uint8_t limits_get_state()
       if (pin & get_limit_pin_mask(idx)) { limit_state |= (1 << idx); }
     }
   }
+
   return(limit_state);
 }
 
@@ -152,6 +156,7 @@ void limits_go_home(uint8_t cycle_mask)
 {
   if (sys.abort) { return; } // Block if system reset has been issued.
 
+#ifndef DISABLE_SENSORS_FOR_DEBUG
   // Initialize plan data struct for homing motion. Spindle and coolant are disabled.
   plan_line_data_t plan_data;
   plan_line_data_t *pl_data = &plan_data;
@@ -336,6 +341,7 @@ void limits_go_home(uint8_t cycle_mask)
 
     }
   }
+#endif
   sys.step_control = STEP_CONTROL_NORMAL_OP; // Return step control to normal operation.
 }
 

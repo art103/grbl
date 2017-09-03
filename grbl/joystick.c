@@ -77,13 +77,18 @@ static void y_handler(void) {
 static void button_handler(void) {
 	GPIOIntClear(GPIO_PORTF_BASE, GPIO_PIN_0);
 
-	if (GPIOPinRead(GPIO_PORTF_BASE, GPIO_PIN_0) > 0)
+	if (GPIOPinRead(GPIO_PORTF_BASE, GPIO_PIN_0) > 0 && GPIOPinRead(GPIO_PORTF_BASE, GPIO_PIN_0) > 0 && GPIOPinRead(GPIO_PORTF_BASE, GPIO_PIN_0) > 0)
 	{
-		protocol_inject_line("G10L20P0X0Y0Z0");
+		if (GPIOPinRead(GPIO_PORTD_BASE, GPIO_PIN_6))
+		{
+			protocol_inject_line("G10L20P0X0Y0Z0");
+		}
 	}
 }
 
 static void joystick_isr(void) {
+	static long last_x_off = 0;
+	static long last_y_off = 0;
 
 	TimerIntClear(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
 
@@ -94,6 +99,7 @@ static void joystick_isr(void) {
 		unsigned long y = joystick_y[0];
 		long x_off = 0;
 		long y_off = 0;
+		long feed = 1000;
 
 		if (x > joystick_center[0] + ZERO_THRESHOLD) {
 			x_off = 1;
@@ -111,15 +117,22 @@ static void joystick_isr(void) {
 		{
 			// Back in the centre, send the jog
 			jog_status = 0;
-			jog_count = 4;
+			jog_count = 3;
 		}
-		else// if (jog_status < 5)
+		else
 		{
 			jog_count++;
 
+			if (last_x_off != x_off || last_y_off != y_off)
+			{
+				jog_status = 0;
+			}
+			last_x_off = x_off;
+			last_y_off = y_off;
+
 			// Get up to date ADC readings (to catch return to center),
 			// but repeat jog at lower rate.
-			if (jog_count > 5)
+			if (jog_count > 3)
 			{
 				jog_count = 0;
 
@@ -127,21 +140,28 @@ static void joystick_isr(void) {
 
 				if (jog_status != 0)
 				{
-					int jog_len = 10;
+					int jog_len;
 
-					if (jog_status < 4)
+					if (jog_status < 8)
 					{
 						jog_len = 1;
+						feed = 1000;
 					}
-					else if (jog_status < 8)
+					else if (jog_status < 20)
 					{
-						jog_len = 5;
+						jog_len = 4;
+						feed = 1000;
+					}
+					else
+					{
+						jog_len = 20;
+						feed = 6000;
 					}
 
 					x_off *= -jog_len;
 					y_off *= -jog_len;
 
-					sprintf(jog_cmd, "$J=G91G21X%d.0Y%d.0F1000", y_off, x_off);
+					sprintf(jog_cmd, "$J=G91G21X%d.0Y%d.0F%d", y_off, x_off, feed);
 					protocol_inject_line(jog_cmd);
 				}
 			}
