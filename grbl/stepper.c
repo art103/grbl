@@ -258,6 +258,8 @@ void st_go_idle()
   } else {
     GPIOPinWrite(STEPPERS_DISABLE_PORT, (1<<STEPPERS_DISABLE_BIT), 0);
   }
+
+  GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_2, 0);
 }
 
 
@@ -318,27 +320,6 @@ void TIMER1_COMPA_vect(void)
 
   busy = true;
 
-  // Set the direction pins a couple of nanoseconds before we step the steppers
-  GPIOPinWrite(DIRECTION_PORT, DIRECTION_MASK, st.dir_outbits);
-
-  // Enable step pulse reset timer so that The Stepper Port Reset Interrupt can reset the signal after
-  // exactly settings.pulse_microseconds microseconds, independent of the main Timer1 prescaler.
-  TimerLoadSet(TIMER1_BASE, TIMER_B, st.step_pulse_time);
-  TimerEnable(TIMER1_BASE, TIMER_B);
-
-  if (sys.state & (STATE_JOG)) {
-		GPIOPinWrite(GPIO_PORTD_BASE, GPIO_PIN_6, GPIO_PIN_6);
-  } else {
-	GPIOPinWrite(GPIO_PORTD_BASE, GPIO_PIN_6, 0);
-  }
-
-  // Then pulse the stepping pins
-  #ifdef STEP_PULSE_DELAY
-    st.step_bits = (STEP_PORT & ~STEP_MASK) | st.step_outbits; // Store out_bits to prevent overwriting.
-  #else  // Normal operation
-    GPIOPinWrite(STEP_PORT, STEP_MASK, st.step_outbits);
-  #endif
-
   // If there is no step segment, attempt to pop one from the stepper buffer
   if (st.exec_segment == NULL) {
     // Anything in the buffer? If so, load and initialize next step segment.
@@ -378,6 +359,8 @@ void TIMER1_COMPA_vect(void)
         spindle_set_speed(st.exec_segment->spindle_pwm);
       #endif
 
+      GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_2, GPIO_PIN_2);
+
     } else {
       // Segment buffer empty. Shutdown.
       st_go_idle();
@@ -390,6 +373,26 @@ void TIMER1_COMPA_vect(void)
     }
   }
 
+  // Set the direction pins a couple of nanoseconds before we step the steppers
+  GPIOPinWrite(DIRECTION_PORT, DIRECTION_MASK, st.dir_outbits);
+
+  // Enable step pulse reset timer so that The Stepper Port Reset Interrupt can reset the signal after
+  // exactly settings.pulse_microseconds microseconds, independent of the main Timer1 prescaler.
+  TimerLoadSet(TIMER1_BASE, TIMER_B, st.step_pulse_time);
+  TimerEnable(TIMER1_BASE, TIMER_B);
+
+  if (sys.state & (STATE_JOG)) {
+		GPIOPinWrite(GPIO_PORTD_BASE, GPIO_PIN_6, GPIO_PIN_6);
+  } else {
+	GPIOPinWrite(GPIO_PORTD_BASE, GPIO_PIN_6, 0);
+  }
+
+  // Then pulse the stepping pins
+  #ifdef STEP_PULSE_DELAY
+    st.step_bits = (STEP_PORT & ~STEP_MASK) | st.step_outbits; // Store out_bits to prevent overwriting.
+  #else  // Normal operation
+    GPIOPinWrite(STEP_PORT, STEP_MASK, st.step_outbits);
+  #endif
 
   // Check probing state.
   if (sys_probe_state == PROBE_ACTIVE) { probe_state_monitor(); }
@@ -511,6 +514,7 @@ void st_reset()
   st.dir_outbits = dir_port_invert_mask; // Initialize direction bits to default.
 
   // Initialize step and direction port pins.
+  GPIOPinWrite(STEPPERS_DISABLE_PORT, STEPPERS_DISABLE_MASK, 0);
   GPIOPinWrite(STEP_PORT, STEP_MASK, step_port_invert_mask);
   GPIOPinWrite(DIRECTION_PORT, DIRECTION_MASK, dir_port_invert_mask);
 }
