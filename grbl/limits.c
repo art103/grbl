@@ -341,6 +341,14 @@ void limits_go_home(uint8_t cycle_mask)
 
     }
   }
+#else
+  sys_position[0] = 300;
+  sys_position[1] = 200;
+  sys_position[2] = 0;
+
+  //protocol_inject_line("G0X-300Y-200");
+  //protocol_inject_line("G10L20P0X0Y0Z0");
+
 #endif
   sys.step_control = STEP_CONTROL_NORMAL_OP; // Return step control to normal operation.
 }
