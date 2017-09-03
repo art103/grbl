@@ -98,7 +98,9 @@ void serial_write(uint8_t data) {
 uint8_t serial_read()
 {
   uint8_t tail = serial_rx_buffer_tail; // Temporary serial_rx_buffer_tail (to optimize for volatile)
+
   if (serial_rx_buffer_head == tail) {
+    GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, 0);
     return SERIAL_NO_DATA;
   } else {
     uint8_t data = serial_rx_buffer[tail];
@@ -117,12 +119,9 @@ void process_data(void)
   uint8_t data;
   uint8_t next_head;
   
-  GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, 0);
-
   while (USBBufferDataAvailable(&g_sRxBuffer) > 0)
   {
     USBBufferRead(&g_sRxBuffer, &data, 1);
-    //printf("%c", data);
 
     // Pick off realtime command characters directly from the serial stream. These characters are
 	// not passed into the main buffer, but these set system state flag bits for realtime execution.
@@ -182,8 +181,6 @@ void serial_reset_read_buffer()
 {
   USBBufferFlush(&g_sRxBuffer);
   serial_rx_buffer_tail = serial_rx_buffer_head;
-
-  GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, 0);
 }
 
 
