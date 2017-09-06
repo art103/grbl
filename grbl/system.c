@@ -77,6 +77,7 @@ void system_init()
 uint8_t system_control_get_state()
 {
   uint8_t control_state = 0;
+#ifndef DISABLE_SENSORS_FOR_DEBUG
   uint8_t pin = GPIOPinRead(CONTROL_PORT, CONTROL_MASK) & GPIOPinRead(CONTROL_PORT, CONTROL_MASK) & GPIOPinRead(CONTROL_PORT, CONTROL_MASK);
 
 #if 0 // This code has odd and broken behaviour with the arm-none-eabi compiler
@@ -102,6 +103,7 @@ uint8_t system_control_get_state()
   {
 	  control_state |= CONTROL_PIN_INDEX_SAFETY_DOOR;
   }
+#endif
 #endif
 
   return(control_state);
