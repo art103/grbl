@@ -20,7 +20,6 @@
 
 #include "grbl.h"
 
-extern void LIMIT_INT_vect(void);
 void CONTROL_INT_vect(void);
 
 static uint64_t timer_load;
@@ -53,12 +52,13 @@ void system_init()
   TimerIntRegister(TIMER4_BASE, TIMER_A, gp_timer_isr);
   TimerIntEnable(TIMER4_BASE, TIMER_TIMA_TIMEOUT);
   IntPrioritySet(INT_TIMER4A, CONFIG_GPTIMER_PRIORITY);
-
   TimerEnable(TIMER4_BASE, TIMER_A);
 
+  // Configure IRQs for control pins
   GPIOPinTypeGPIOInput(CONTROL_PORT, CONTROL_MASK);
   GPIOIntTypeSet(CONTROL_PORT, CONTROL_MASK, GPIO_BOTH_EDGES);
   GPIOIntRegister(CONTROL_PORT, &CONTROL_INT_vect);
+  IntPrioritySet(INT_GPIOE, CONFIG_SENSE_PRIORITY);
 
   #ifdef DISABLE_CONTROL_PIN_PULL_UP
     // Normal low operation. Requires external pull-down.
@@ -77,7 +77,9 @@ void system_init()
 uint8_t system_control_get_state()
 {
   uint8_t control_state = 0;
-  uint8_t pin = GPIOPinRead(CONTROL_PORT, CONTROL_MASK);
+  uint8_t pin = GPIOPinRead(CONTROL_PORT, CONTROL_MASK) & GPIOPinRead(CONTROL_PORT, CONTROL_MASK) & GPIOPinRead(CONTROL_PORT, CONTROL_MASK);
+
+#if 0 // This code has odd and broken behaviour with the arm-none-eabi compiler
   #ifdef INVERT_CONTROL_PIN_MASK
     pin ^= INVERT_CONTROL_PIN_MASK;
   #endif
@@ -95,6 +97,13 @@ uint8_t system_control_get_state()
     if (bit_isfalse(pin,(1<<CONTROL_CYCLE_START_BIT))) { control_state |= CONTROL_PIN_INDEX_CYCLE_START; }
     #endif
   }
+#else
+  if (pin & (1<<CONTROL_SAFETY_DOOR_BIT))
+  {
+	  control_state |= CONTROL_PIN_INDEX_SAFETY_DOOR;
+  }
+#endif
+
   return(control_state);
 }
 
@@ -105,27 +114,21 @@ uint8_t system_control_get_state()
 // directly from the incoming serial data stream.
 void CONTROL_INT_vect(void)
 {
+  GPIOIntClear(CONTROL_PORT, CONTROL_MASK);
+
   uint8_t pin = system_control_get_state();
+
   if (pin) {
     if (bit_istrue(pin,CONTROL_PIN_INDEX_RESET)) {
       mc_reset();
     } else if (bit_istrue(pin,CONTROL_PIN_INDEX_CYCLE_START)) {
       bit_true(sys_rt_exec_state, EXEC_CYCLE_START);
-    #ifndef ENABLE_SAFETY_DOOR_INPUT_PIN
-      } else if (bit_istrue(pin,CONTROL_PIN_INDEX_FEED_HOLD)) {
+    } else if (bit_istrue(pin,CONTROL_PIN_INDEX_FEED_HOLD)) {
         bit_true(sys_rt_exec_state, EXEC_FEED_HOLD);
-    #else
-      } else if (bit_istrue(pin,CONTROL_PIN_INDEX_SAFETY_DOOR)) {
+    } else if (bit_istrue(pin,CONTROL_PIN_INDEX_SAFETY_DOOR)) {
         bit_true(sys_rt_exec_state, EXEC_SAFETY_DOOR);
-    #endif
     }
   }
-
-  if (limits_get_state()) {
-    LIMIT_INT_vect();
-  }
-
-  GPIOIntClear(CONTROL_PORT, CONTROL_MASK);
 }
 
 
