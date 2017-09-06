@@ -36,6 +36,7 @@ void limits_init()
   // Set as input pins
   GPIOPinTypeGPIOInput(LIMIT_PORT, LIMIT_MASK);
   GPIOIntTypeSet(LIMIT_PORT, LIMIT_MASK, GPIO_BOTH_EDGES);
+  GPIOIntRegister(LIMIT_PORT, &LIMIT_INT_vect);
 
   #ifdef DISABLE_LIMIT_PIN_PULL_UP
     // Normal low operation. Requires external pull-down.
@@ -345,10 +346,6 @@ void limits_go_home(uint8_t cycle_mask)
   sys_position[0] = 300;
   sys_position[1] = 200;
   sys_position[2] = 0;
-
-  //protocol_inject_line("G0X-300Y-200");
-  //protocol_inject_line("G10L20P0X0Y0Z0");
-
 #endif
   sys.step_control = STEP_CONTROL_NORMAL_OP; // Return step control to normal operation.
 }
