@@ -618,7 +618,7 @@
 #define CONFIG_GPTIMER_PRIORITY     (0 << 5)
 #define CONFIG_STEPPER_PRIORITY     (1 << 5)
 #define CONFIG_LASER_PRIORITY       (2 << 5)
-#define CONFIG_USB_PRIORITY         (3 << 5)
+#define CONFIG_USB_PRIORITY         (1 << 5)
 #define CONFIG_SENSE_PRIORITY       (4 << 5)
 #define CONFIG_JOY_PRIORITY         (5 << 5)
 
@@ -675,15 +675,15 @@
 
   // Define user-control controls (cycle start, reset, feed hold) input pins.
   // NOTE: All CONTROLs pins must be on the same port and not on a port with other input pins (limits).
-  #define CONTROL_PORT      GPIO_PORTE_BASE
+  #define CONTROL_PORT              GPIO_PORTE_BASE
   #define CONTROL_SAFETY_DOOR_BIT   1  // Uno Analog Pin 1 NOTE: Safety door is shared with feed hold. Enabled by config define.
-  #define CONTROL_MASK      ((1<<CONTROL_SAFETY_DOOR_BIT))
-  #define INVERT_CONTROL_PIN_MASK ((1<<CONTROL_SAFETY_DOOR_BIT))
+  #define CONTROL_MASK              ((1<<CONTROL_SAFETY_DOOR_BIT))
+  //#define INVERT_CONTROL_PIN_MASK   ((1<<CONTROL_SAFETY_DOOR_BIT))
 
   // Define probe switch input pin.
-  //#define PROBE_PORT      PORTC
-  //#define PROBE_BIT       5  // Uno Analog Pin 5
-  //#define PROBE_MASK      (1<<PROBE_BIT)
+  //#define PROBE_PORT                GPIO_PORTD_BASE
+  //#define PROBE_BIT                 5
+  //#define PROBE_MASK                (1<<PROBE_BIT)
 
   // Variable spindle configuration below. Do not change unless you know what you are doing.
   // NOTE: Only used when variable spindle is enabled.
@@ -695,46 +695,45 @@
   #define SPINDLE_PWM_RANGE         (SPINDLE_PWM_MAX_VALUE-SPINDLE_PWM_MIN_VALUE)
 
   // NOTE: On the 328p, these must be the same as the SPINDLE_ENABLE settings.
-  #define SPINDLE_PWM_PORT  GPIO_PORTB_BASE
-  #define SPINDLE_PWM_BIT	6
-
+  #define SPINDLE_PWM_PORT          GPIO_PORTB_BASE
+  #define SPINDLE_PWM_BIT	        6
   #define SPINDLE_PWM_FREQ          40000
 
 // Paste default settings definitions here.
-  #define DEFAULT_X_STEPS_PER_MM 157.48
-  #define DEFAULT_Y_STEPS_PER_MM 157.48
-  #define DEFAULT_Z_STEPS_PER_MM 250.0
-  #define DEFAULT_X_MAX_RATE 25000.0 // mm/min
-  #define DEFAULT_Y_MAX_RATE 25000.0 // mm/min
-  #define DEFAULT_Z_MAX_RATE 500.0 // mm/min
-  #define DEFAULT_X_ACCELERATION (2500.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
-  #define DEFAULT_Y_ACCELERATION (2500.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
-  #define DEFAULT_Z_ACCELERATION (10.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
-  #define DEFAULT_X_MAX_TRAVEL 325.0 // mm NOTE: Must be a positive value.
-  #define DEFAULT_Y_MAX_TRAVEL 220.0 // mm NOTE: Must be a positive value.
-  #define DEFAULT_Z_MAX_TRAVEL 200.0 // mm NOTE: Must be a positive value.
-  #define DEFAULT_SPINDLE_RPM_MAX 1000.0 // rpm
-  #define DEFAULT_SPINDLE_RPM_MIN 0.0 // rpm
+  #define DEFAULT_X_STEPS_PER_MM    157.48
+  #define DEFAULT_Y_STEPS_PER_MM    157.48
+  #define DEFAULT_Z_STEPS_PER_MM    250.0
+  #define DEFAULT_X_MAX_RATE        25000.0 // mm/min
+  #define DEFAULT_Y_MAX_RATE        25000.0 // mm/min
+  #define DEFAULT_Z_MAX_RATE        500.0 // mm/min
+  #define DEFAULT_X_ACCELERATION    (2500.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
+  #define DEFAULT_Y_ACCELERATION    (2500.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
+  #define DEFAULT_Z_ACCELERATION    (10.0*60*60) // 10*60*60 mm/min^2 = 10 mm/sec^2
+  #define DEFAULT_X_MAX_TRAVEL      325.0 // mm NOTE: Must be a positive value.
+  #define DEFAULT_Y_MAX_TRAVEL      220.0 // mm NOTE: Must be a positive value.
+  #define DEFAULT_Z_MAX_TRAVEL      200.0 // mm NOTE: Must be a positive value.
+  #define DEFAULT_SPINDLE_RPM_MAX   1000.0 // rpm
+  #define DEFAULT_SPINDLE_RPM_MIN   0.0 // rpm
   #define DEFAULT_STEP_PULSE_MICROSECONDS 10
   #define DEFAULT_STEPPING_INVERT_MASK 0
   #define DEFAULT_DIRECTION_INVERT_MASK (1 << 0)
-  #define DEFAULT_STEPPER_IDLE_LOCK_TIME 25 // msec (0-254, 255 keeps steppers enabled)
+  #define DEFAULT_STEPPER_IDLE_LOCK_TIME 255 // msec (0-254, 255 keeps steppers enabled)
   #define DEFAULT_STATUS_REPORT_MASK 1 // MPos enabled
   #define DEFAULT_JUNCTION_DEVIATION 0.01 // mm
-  #define DEFAULT_ARC_TOLERANCE 0.002 // mm
-  #define DEFAULT_REPORT_INCHES 0 // false
-  #define DEFAULT_INVERT_ST_ENABLE 0 // false
+  #define DEFAULT_ARC_TOLERANCE     0.002 // mm
+  #define DEFAULT_REPORT_INCHES     0 // false
+  #define DEFAULT_INVERT_ST_ENABLE  0 // false
   #define DEFAULT_INVERT_LIMIT_PINS 1 // false
   #define DEFAULT_SOFT_LIMIT_ENABLE 1 // false
   #define DEFAULT_HARD_LIMIT_ENABLE 0  // false
-  #define DEFAULT_INVERT_PROBE_PIN 0 // false
-  #define DEFAULT_LASER_MODE 1 // true
-  #define DEFAULT_HOMING_ENABLE 1  // false
-  #define DEFAULT_HOMING_DIR_MASK (1 << 0) // move positive dir
-  #define DEFAULT_HOMING_FEED_RATE 600.0 // mm/min
-  #define DEFAULT_HOMING_SEEK_RATE 6000.0 // mm/min
+  #define DEFAULT_INVERT_PROBE_PIN  0 // false
+  #define DEFAULT_LASER_MODE        1 // true
+  #define DEFAULT_HOMING_ENABLE     1  // false
+  #define DEFAULT_HOMING_DIR_MASK   (1 << 0) // move positive dir
+  #define DEFAULT_HOMING_FEED_RATE  600.0 // mm/min
+  #define DEFAULT_HOMING_SEEK_RATE  6000.0 // mm/min
   #define DEFAULT_HOMING_DEBOUNCE_DELAY 100 // msec (0-65k)
-  #define DEFAULT_HOMING_PULLOFF 5.0 // mm
+  #define DEFAULT_HOMING_PULLOFF    5.0 // mm
 
 
 #endif
