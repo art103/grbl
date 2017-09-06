@@ -678,7 +678,7 @@
   #define CONTROL_PORT              GPIO_PORTE_BASE
   #define CONTROL_SAFETY_DOOR_BIT   1  // Uno Analog Pin 1 NOTE: Safety door is shared with feed hold. Enabled by config define.
   #define CONTROL_MASK              ((1<<CONTROL_SAFETY_DOOR_BIT))
-  //#define INVERT_CONTROL_PIN_MASK   ((1<<CONTROL_SAFETY_DOOR_BIT))
+  #define INVERT_CONTROL_PIN_MASK   ((1<<CONTROL_SAFETY_DOOR_BIT))
 
   // Define probe switch input pin.
   //#define PROBE_PORT                GPIO_PORTD_BASE
