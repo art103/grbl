@@ -3,5 +3,7 @@
 *.elf
 *.DS_Store
 *.d
+grbl/LM4F120/
+grbl/TM4C123G/
 
 README.md
