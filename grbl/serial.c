@@ -23,105 +23,136 @@
 
 #include "usb_serial_structs.h"
 
-#define RX_RING_BUFFER (RX_BUFFER_SIZE+1)
+void process_data(void);
 
-uint8_t serial_rx_buffer[RX_RING_BUFFER];
-uint8_t serial_rx_buffer_head = 0;
-volatile uint8_t serial_rx_buffer_tail = 0;
+extern tUSBDCDCDevice g_sCDCDevice;
+
+uint32_t DummyHandler(void *pvCBData, uint32_t ui32Event, uint32_t ui32MsgValue,
+          void *pvMsgData)
+{ return 0; }
+
+uint32_t DummyPacketRead(void *pvCDCDevice, uint8_t *pi8Data, uint32_t ui32Length,
+                  bool bLast)
+{ return 0; }
+
+uint32_t DummyPacketAvailable(void *pvCDCDevice)
+{ return 0; }
+
+uint8_t g_RxBuffer[RX_BUFFER_SIZE];
+uint8_t g_RxBufferWorkspace[USB_BUFFER_WORKSPACE_SIZE];
+const tUSBBuffer g_sGrblRxBuffer =
+{
+	    false,                          // This is a receive buffer.
+		DummyHandler,                      // pfnCallback
+	    (void *)&g_sCDCDevice,          // Callback data is our device pointer.
+		DummyPacketRead,              // pfnTransfer
+		DummyPacketAvailable,       // pfnAvailable
+	    (void *)&g_sCDCDevice,          // pvHandle
+		g_RxBuffer,              // pui8Buffer
+		RX_BUFFER_SIZE,               // ui32BufferSize
+		g_RxBufferWorkspace         // pvWorkspace
+};
 
 // Returns the number of bytes available in the RX serial buffer.
-uint8_t serial_get_rx_buffer_available()
+uint32_t serial_get_rx_buffer_available()
 {
-  uint8_t rtail = serial_rx_buffer_tail; // Copy to limit multiple calls to volatile
-  if (serial_rx_buffer_head >= rtail) { return(RX_BUFFER_SIZE - (serial_rx_buffer_head-rtail)); }
-  return((rtail-serial_rx_buffer_head-1));
+	return USBBufferSpaceAvailable(&g_sGrblRxBuffer);
 }
 
 
 // Returns the number of bytes used in the RX serial buffer.
 // NOTE: Deprecated. Not used unless classic status reports are enabled in config.h.
-uint8_t serial_get_rx_buffer_count()
+uint32_t serial_get_rx_buffer_count()
 {
-  uint8_t rtail = serial_rx_buffer_tail; // Copy to limit multiple calls to volatile
-  if (serial_rx_buffer_head >= rtail) { return(serial_rx_buffer_head-rtail); }
-  return (RX_BUFFER_SIZE - (rtail-serial_rx_buffer_head));
+	return USBBufferDataAvailable(&g_sGrblRxBuffer);
 }
 
 
 // Returns the number of bytes used in the TX serial buffer.
 // NOTE: Not used except for debugging and ensuring no TX bottlenecks.
-uint8_t serial_get_tx_buffer_count()
+uint32_t serial_get_tx_buffer_count()
 {
 	return USBBufferDataAvailable(&g_sTxBuffer);
 }
 
-
 void serial_init()
 {
-    /* Setup pins for USB operation */
-    GPIOPinTypeUSBAnalog(GPIO_PORTD_BASE, GPIO_PIN_4 | GPIO_PIN_5);
+  /* Setup pins for USB operation */
+  GPIOPinTypeUSBAnalog(GPIO_PORTD_BASE, GPIO_PIN_4 | GPIO_PIN_5);
 
-    //
-    // Initialize the transmit and receive buffers.
-    //
-    USBBufferInit(&g_sTxBuffer);
-    USBBufferInit(&g_sRxBuffer);
+  //
+  // Initialize the transmit and receive buffers.
+  //
+  USBBufferInit(&g_sTxBuffer);
+  USBBufferInit(&g_sRxBuffer);
+  USBBufferInit(&g_sGrblRxBuffer);
 
-    //
-    // Set the USB stack mode to Device mode with VBUS monitoring.
-    //
-    USBStackModeSet(0, eUSBModeForceDevice, 0);
+  //
+  // Set the USB stack mode to Device mode with VBUS monitoring.
+  //
+  USBStackModeSet(0, eUSBModeForceDevice, 0);
 
-    //
-    // Pass our device information to the USB library and place the device
-    // on the bus.
-    //
-    USBDCDCInit(0, &g_sCDCDevice);
+  //
+  // Pass our device information to the USB library and place the device
+  // on the bus.
+  //
+  USBDCDCInit(0, &g_sCDCDevice);
 
-    IntPrioritySet(INT_USB0, CONFIG_USB_PRIORITY);
+  IntPrioritySet(INT_USB0, CONFIG_USB_PRIORITY);
+
+  // Configure timer
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER2);
+  TimerConfigure(TIMER2_BASE, TIMER_CFG_ONE_SHOT);
+
+  // Create a 1us timer, used to process USB data
+  // at a lower IRQ priority.
+  TimerLoadSet64(TIMER2_BASE, SysCtlClockGet() / 1000000);
+  TimerIntRegister(TIMER2_BASE, TIMER_A, process_data);
+  TimerIntEnable(TIMER2_BASE, TIMER_TIMA_TIMEOUT);
+  IntPrioritySet(INT_TIMER2A, CONFIG_SENSE_PRIORITY);
 }
 
 
 // Writes one byte to the TX serial buffer. Called by main program.
 void serial_write(uint8_t data) {
+  GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, GPIO_PIN_1);
 
-    GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, GPIO_PIN_1);
 
-	/* Wait for some space */
-	while (USBBufferSpaceAvailable(&g_sTxBuffer) < 1) {};
+  /* Wait for some space */
+  while (USBBufferSpaceAvailable(&g_sTxBuffer) < 1) {};
 
-	/* Send the byte (inefficient!) */
-	USBBufferWrite(&g_sTxBuffer, &data, 1);
+  /* Send the byte (inefficient!) */
+  USBBufferWrite(&g_sTxBuffer, &data, 1);
 }
 
 // Fetches the first byte in the serial read buffer. Called by main program.
 uint8_t serial_read()
 {
-  uint8_t tail = serial_rx_buffer_tail; // Temporary serial_rx_buffer_tail (to optimize for volatile)
+  uint8_t data = SERIAL_NO_DATA;
 
-  if (serial_rx_buffer_head == tail) {
+  if (USBBufferDataAvailable(&g_sGrblRxBuffer) > max_rx_out)
+    max_rx_out = USBBufferDataAvailable(&g_sGrblRxBuffer);
+
+  if (USBBufferDataAvailable(&g_sGrblRxBuffer) == 0) 	{
     GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, 0);
-    return SERIAL_NO_DATA;
   } else {
-    uint8_t data = serial_rx_buffer[tail];
-
-    tail++;
-    if (tail == RX_RING_BUFFER) { tail = 0; }
-    serial_rx_buffer_tail = tail;
-
-    return data;
+    USBBufferRead(&g_sGrblRxBuffer, &data, 1);
   }
+  return data;
 }
-
 
 void process_data(void)
 {
   uint8_t data;
-  uint8_t next_head;
-  
+
+  TimerIntClear(TIMER2_BASE, TIMER_TIMA_TIMEOUT);
+
+  if (USBBufferDataAvailable(&g_sRxBuffer) > max_rx_in)
+    max_rx_in = USBBufferDataAvailable(&g_sRxBuffer);
+
   while (USBBufferDataAvailable(&g_sRxBuffer) > 0)
   {
-    USBBufferRead(&g_sRxBuffer, &data, 1);
+	USBBufferRead(&g_sRxBuffer, &data, 1);
 
     // Pick off realtime command characters directly from the serial stream. These characters are
 	// not passed into the main buffer, but these set system state flag bits for realtime execution.
@@ -163,14 +194,14 @@ void process_data(void)
           }
           // Throw away any unfound extended-ASCII character.
         } else { // Write character to buffer
-          next_head = serial_rx_buffer_head + 1;
-          if (next_head == RX_RING_BUFFER) { next_head = 0; }
+        	/* Wait for some space */
+        	if (USBBufferSpaceAvailable(&g_sGrblRxBuffer) < 1)
+        	{
+        		printf("Buffer Overrun\r\n");
+        	}
 
-          // Write data to buffer unless it is full.
-          if (next_head != serial_rx_buffer_tail) {
-            serial_rx_buffer[serial_rx_buffer_head] = data;
-            serial_rx_buffer_head = next_head;
-          }
+        	/* Send the byte (inefficient!) */
+        	USBBufferWrite(&g_sGrblRxBuffer, &data, 1);
         }
 	}
   }
@@ -179,8 +210,8 @@ void process_data(void)
 
 void serial_reset_read_buffer()
 {
-  USBBufferFlush(&g_sRxBuffer);
-  serial_rx_buffer_tail = serial_rx_buffer_head;
+	  USBBufferFlush(&g_sRxBuffer);
+	  USBBufferFlush(&g_sGrblRxBuffer);
 }
 
 
@@ -267,6 +298,7 @@ ControlHandler(void *pvCBData, uint32_t ui32Event,
                 //
                 USBBufferFlush(&g_sTxBuffer);
                 USBBufferFlush(&g_sRxBuffer);
+                //delay_ms(1000);
             	mc_reset();
         	}
         	break;
@@ -377,7 +409,8 @@ RxHandler(void *pvCBData, uint32_t ui32Event, uint32_t ui32MsgValue,
         //
         case USB_EVENT_RX_AVAILABLE:
             GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, GPIO_PIN_3);
-            process_data();
+            //process_data();
+            TimerEnable(TIMER2_BASE, TIMER_A);
             break;
 
         //
