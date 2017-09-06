@@ -142,20 +142,25 @@ static void joystick_isr(void) {
 				{
 					int jog_len;
 
-					if (jog_status < 8)
+					if (jog_status < 2)
 					{
 						jog_len = 1;
 						feed = 1000;
 					}
-					else if (jog_status < 20)
+					else if (jog_status < 4)
 					{
-						jog_len = 4;
+						jog_len = 2;
+						feed = 1000;
+					}
+					else if (jog_status < 6)
+					{
+						jog_len = 8;
 						feed = 1000;
 					}
 					else
 					{
-						jog_len = 20;
-						feed = 6000;
+						jog_len = 16;
+						feed = 2000;
 					}
 
 					x_off *= -jog_len;
@@ -222,8 +227,8 @@ void joystick_init(void) {
 	SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
 	TimerConfigure(TIMER3_BASE, TIMER_CFG_PERIODIC);
 
-	// Create a 50ms timer callback
-	TimerLoadSet64(TIMER3_BASE, SysCtlClockGet() / 20);
+	// Create a 100ms timer callback
+	TimerLoadSet64(TIMER3_BASE, SysCtlClockGet() / 10);
 	TimerIntRegister(TIMER3_BASE, TIMER_A, joystick_isr);
 	TimerIntEnable(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
 	IntPrioritySet(INT_TIMER3A, CONFIG_JOY_PRIORITY);
