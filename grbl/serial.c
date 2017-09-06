@@ -20,14 +20,17 @@
 */
 
 #include "grbl.h"
-
 #include "usb_serial_structs.h"
 
+static volatile int usbConnected = 0;
+
 void process_data(void);
+void UART_Isr(void);
 
 #define RX_RING_BUFFER (RX_BUFFER_SIZE+1)
 
 #define USE_SERIAL_PROCESS_TIMER
+#define ENABLE_UART_COMMS
 
 uint8_t serial_rx_buffer[RX_RING_BUFFER];
 uint32_t serial_rx_buffer_head = 0;
@@ -95,6 +98,13 @@ void serial_init()
   TimerIntEnable(TIMER2_BASE, TIMER_TIMA_TIMEOUT);
   IntPrioritySet(INT_TIMER2A, CONFIG_SENSE_PRIORITY);
 #endif
+
+#ifdef ENABLE_UART_COMMS
+  // Initialise the UART callbacks.
+  UARTIntRegister(UART0_BASE, &UART_Isr);
+  UARTFIFODisable(UART0_BASE);
+  UARTIntEnable(UART0_BASE, UART_INT_RX);
+#endif
 }
 
 
@@ -102,12 +112,18 @@ void serial_init()
 void serial_write(uint8_t data) {
   GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, GPIO_PIN_1);
 
+  if (usbConnected) {
+    /* Wait for some space */
+    while (USBBufferSpaceAvailable(&g_sTxBuffer) < 1) {};
 
-  /* Wait for some space */
-  while (USBBufferSpaceAvailable(&g_sTxBuffer) < 1) {};
-
-  /* Send the byte (inefficient!) */
-  USBBufferWrite(&g_sTxBuffer, &data, 1);
+    /* Send the byte (inefficient!) */
+    USBBufferWrite(&g_sTxBuffer, &data, 1);
+  } else {
+#ifdef ENABLE_UART_COMMS
+    UARTCharPut(UART0_BASE, data);
+    GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, 0);
+#endif
+  }
 }
 
 // Fetches the first byte in the serial read buffer. Called by main program.
@@ -129,6 +145,33 @@ uint8_t serial_read()
   }
 }
 
+void serial_reset_read_buffer()
+{
+  USBBufferFlush(&g_sRxBuffer);
+  serial_rx_buffer_tail = serial_rx_buffer_head;
+}
+
+static void notify(void) {
+  GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, GPIO_PIN_3);
+#ifdef USE_SERIAL_PROCESS_TIMER
+  TimerEnable(TIMER2_BASE, TIMER_A);
+#else
+  process_data();
+#endif
+}
+
+#ifdef ENABLE_UART_COMMS
+void UART_Isr(void)
+{
+  UARTIntClear(UART0_BASE, UART_INT_RX);
+  char data = UARTCharGetNonBlocking(UART0_BASE);
+
+  if (data != -1) {
+    USBBufferWrite(&g_sRxBuffer, &data, 1);
+    notify();
+  }
+}
+#endif
 
 void process_data(void)
 {
@@ -197,14 +240,6 @@ void process_data(void)
 	}
   }
 }
-
-
-void serial_reset_read_buffer()
-{
-  USBBufferFlush(&g_sRxBuffer);
-  serial_rx_buffer_tail = serial_rx_buffer_head;
-}
-
 
 static tLineCoding g_sLineCoding =
 {
@@ -283,14 +318,21 @@ ControlHandler(void *pvCBData, uint32_t ui32Event,
         // Set the current serial communication parameters.
         //
         case USBD_CDC_EVENT_SET_CONTROL_LINE_STATE:
-        	if (ui32MsgValue & (1 << 0)) {
+        	if (ui32MsgValue & (1 << 0)) { // Check DTR bit
+        		uint8_t data = CMD_RESET;
                 //
                 // Flush our buffers.
                 //
                 USBBufferFlush(&g_sTxBuffer);
                 USBBufferFlush(&g_sRxBuffer);
-                //delay_ms(1000);
-            	mc_reset();
+
+                usbConnected = 1;
+
+                USBBufferWrite(&g_sRxBuffer, &data, 1);
+
+                notify();
+        	} else {
+        		usbConnected = 0;
         	}
         	break;
 
@@ -399,12 +441,7 @@ RxHandler(void *pvCBData, uint32_t ui32Event, uint32_t ui32MsgValue,
         // A new packet has been received.
         //
         case USB_EVENT_RX_AVAILABLE:
-            GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, GPIO_PIN_3);
-#ifdef USE_SERIAL_PROCESS_TIMER
-            TimerEnable(TIMER2_BASE, TIMER_A);
-#else
-            process_data();
-#endif
+            notify();
             break;
 
         //
