@@ -258,8 +258,6 @@ void st_go_idle()
   } else {
     GPIOPinWrite(STEPPERS_DISABLE_PORT, (1<<STEPPERS_DISABLE_BIT), 0);
   }
-
-  GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_2, 0);
 }
 
 
@@ -358,8 +356,6 @@ void TIMER1_COMPA_vect(void)
         // Set real-time spindle output as segment is loaded, just prior to the first step.
         spindle_set_speed(st.exec_segment->spindle_pwm);
       #endif
-
-      GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_2, GPIO_PIN_2);
 
     } else {
       // Segment buffer empty. Shutdown.
